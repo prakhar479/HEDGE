@@ -1,0 +1,8 @@
+codecarbon
+psutil
+pytest
+numpy
+astor
+openai
+google-generativeai
+python-dotenv
