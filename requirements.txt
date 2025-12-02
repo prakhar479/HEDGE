@@ -6,3 +6,5 @@ astor
 openai
 google-generativeai
 python-dotenv
+matplotlib
+seaborn

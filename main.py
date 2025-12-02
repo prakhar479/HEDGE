@@ -22,8 +22,8 @@ from src.mutator.llm_mutator import LLMMutator
 from src.core.llm import get_llm_client
 from src.core.abstraction import AbstractionManager
 from src.core.engine import EvolutionaryEngine
-
 from src.utils.logging import ExperimentLogger
+from src.utils.visualizer import ExperimentVisualizer
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -34,6 +34,7 @@ def main():
     parser.add_argument("--tests", type=str, required=True, help="Path to the test file")
     parser.add_argument("--generations", type=int, default=5, help="Number of generations")
     parser.add_argument("--layers", nargs='+', default=['L1', 'L2'], choices=['L1', 'L2'], help="Optimization layers to use (L1=Intent, L2=Syntax)")
+    parser.add_argument("--visualize", action='store_true', help="Generate comprehensive visualizations after optimization")
     args = parser.parse_args()
 
     # Initialize Logger
@@ -114,6 +115,13 @@ def main():
         with open(local_output, "w") as f:
             f.write(best_sol.code)
         print(f"\nBest Energy Solution saved to {local_output}")
+    
+    # Generate visualizations if requested
+    if args.visualize:
+        print("\n" + "="*50)
+        visualizer = ExperimentVisualizer(experiment_logger.experiment_dir)
+        visualizer.generate_all_visualizations()
+        print("="*50)
 
 if __name__ == "__main__":
     main()
