@@ -141,5 +141,3 @@ The current system is a foundation. The future of HEDGE involves:
 2.  **The Archive (MAP-Elites)**: Preserving diverse solutions (e.g., "Short code" vs "Fast code") to avoid local optima.
 3.  **Multi-Objective Optimization**: Generating a Pareto Frontier of solutions (Energy vs Readability).
 4.  **Compiler Evolution (L3)**: Optimizing compiler flags alongside source code.
-
-See `roadmap.md` for the detailed design document.

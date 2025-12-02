@@ -2,7 +2,7 @@ import ast
 import astor
 import random
 import copy
-from typing import List
+from typing import List, Tuple
 from .base import Mutator
 
 class RobustMutator(Mutator):
@@ -13,7 +13,7 @@ class RobustMutator(Mutator):
             ListCompOptimizer()
         ]
 
-    def mutate(self, code_str: str) -> List[str]:
+    def mutate(self, code_str: str) -> List[Tuple[str, str]]:
         """
         Applies random AST transformations to generate variants.
         """
@@ -35,7 +35,7 @@ class RobustMutator(Mutator):
                 ast.fix_missing_locations(new_tree)
                 try:
                     source = astor.to_source(new_tree)
-                    variants.append(source)
+                    variants.append((source, f"Robust_{transformer.__class__.__name__}"))
                 except Exception:
                     pass
         

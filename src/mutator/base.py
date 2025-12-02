@@ -1,10 +1,10 @@
 from abc import ABC, abstractmethod
-from typing import List
+from typing import List, Tuple
 
 class Mutator(ABC):
     @abstractmethod
-    def mutate(self, code_str: str) -> List[str]:
+    def mutate(self, code_str: str) -> List[Tuple[str, str]]:
         """
-        Generates a list of mutated code strings from the input code.
+        Generates a list of (mutated_code, mutation_strategy_name) tuples.
         """
         pass

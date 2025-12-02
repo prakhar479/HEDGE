@@ -2,14 +2,14 @@ import ast
 import astor
 import random
 import copy
-from typing import List
+from typing import List, Tuple
 from .base import Mutator
 
 class SimpleMutator(Mutator):
     def __init__(self):
         pass
 
-    def mutate(self, code_str: str) -> List[str]:
+    def mutate(self, code_str: str) -> List[Tuple[str, str]]:
         """
         Applies random AST transformations to generate variants.
         """
@@ -22,17 +22,17 @@ class SimpleMutator(Mutator):
 
         # List of available transformers
         transformers = [
-            LoopUnrollingTransformer(),
-            ListCompTransformer(),
-            AugAssignTransformer()
+            (LoopUnrollingTransformer(), "Simple_LoopUnrolling"),
+            (ListCompTransformer(), "Simple_ListComp"),
+            (AugAssignTransformer(), "Simple_AugAssign")
         ]
         
         # Apply each transformer to a fresh copy of the tree
-        for transformer in transformers:
+        for transformer, name in transformers:
             new_tree = copy.deepcopy(tree)
             transformer.visit(new_tree)
             if transformer.mutated:
-                variants.append(astor.to_source(new_tree))
+                variants.append((astor.to_source(new_tree), name))
             
         return variants
 

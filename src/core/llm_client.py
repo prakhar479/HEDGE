@@ -32,7 +32,7 @@ class OpenAIClient(LLMClient):
             return ""
 
 class GeminiClient(LLMClient):
-    def __init__(self, api_key: str, model: str = "gemini-1.5-pro"):
+    def __init__(self, api_key: str, model: str = "gemini-2.5-flash"):
         try:
             import google.generativeai as genai
             genai.configure(api_key=api_key)
