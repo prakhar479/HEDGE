@@ -1,22 +1,22 @@
 import ast
 import astor
-import random
 import copy
 from typing import List, Tuple
 from .base import Mutator
+from src.core.ir_manager import CodeIR, IRGenerator
 
 class SimpleMutator(Mutator):
-    def __init__(self):
-        pass
+    def __init__(self, llm_client=None):
+        self.ir_generator = IRGenerator(llm_client)
 
-    def mutate(self, code_str: str) -> List[Tuple[str, str]]:
+    def mutate(self, code_ir: CodeIR) -> List[Tuple[CodeIR, str]]:
         """
         Applies random AST transformations to generate variants.
         """
         variants = []
         
         try:
-            tree = ast.parse(code_str)
+            tree = ast.parse(code_ir.original_code)
         except SyntaxError:
             return []
 
@@ -32,7 +32,9 @@ class SimpleMutator(Mutator):
             new_tree = copy.deepcopy(tree)
             transformer.visit(new_tree)
             if transformer.mutated:
-                variants.append((astor.to_source(new_tree), name))
+                new_code = astor.to_source(new_tree)
+                new_ir = self.ir_generator.generate_ir(new_code)
+                variants.append((new_ir, name))
             
         return variants
 

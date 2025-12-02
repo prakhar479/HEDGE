@@ -35,6 +35,7 @@ def main():
     parser.add_argument("--generations", type=int, default=5, help="Number of generations")
     parser.add_argument("--layers", nargs='+', default=['L1', 'L2'], choices=['L1', 'L2'], help="Optimization layers to use (L1=Intent, L2=Syntax)")
     parser.add_argument("--visualize", action='store_true', help="Generate comprehensive visualizations after optimization")
+    parser.add_argument("--save-ir", action='store_true', help="Save intermediate representations to disk for analysis")
     args = parser.parse_args()
 
     # Initialize Logger
@@ -59,14 +60,14 @@ def main():
     llm_client = get_llm_client()
     abstraction_manager = AbstractionManager(llm_client)
     
-    # 3. Mutators
+    # 3. Mutators (now receive llm_client for IR generation)
     mutators = []
     
     # L2 Mutators (Formal + Simple + Neural L2)
     if 'L2' in args.layers:
         logger.info("Enabling L2 Mutators (Syntax/AST + Neural Refactoring)")
-        mutators.append(FormalMutator())
-        mutators.append(SimpleMutator())
+        mutators.append(FormalMutator(llm_client))
+        mutators.append(SimpleMutator(llm_client))
         
     # LLM Mutator (Configured based on layers)
     enable_l1 = 'L1' in args.layers
@@ -79,11 +80,21 @@ def main():
         llm_mutator = LLMMutator(llm_client, abstraction_manager, enable_l1=enable_l1, enable_l2=enable_l2)
         mutators.append(llm_mutator)
     
-    # 4. Engine
-    engine = EvolutionaryEngine(mutators, runner, experiment_logger=experiment_logger, generations=args.generations)
+    # 4. Engine (now receives llm_client and save_ir flag)
+    engine = EvolutionaryEngine(
+        mutators, 
+        runner, 
+        llm_client=llm_client,
+        experiment_logger=experiment_logger, 
+        generations=args.generations,
+        save_ir=args.save_ir
+    )
     
     # Run optimization
     logger.info(f"Starting optimization loop with layers: {args.layers}")
+    if args.save_ir:
+        logger.info("IR snapshots will be saved to experiments/<timestamp>/ir_snapshots/")
+    
     pareto_solutions = engine.optimize(initial_code, test_code)
     
     print("\n" + "="*50)

@@ -3,30 +3,37 @@ import copy
 import random
 import uuid
 import hashlib
+import os
 from typing import List, Tuple, Dict, Any, Optional
 from dataclasses import dataclass, field
 from src.green_gym.runner import CodeRunner
 from src.mutator.base import Mutator
 from src.utils.logging import ExperimentLogger
+from src.core.ir_manager import CodeIR, IRGenerator, IRSerializer
 
 logger = logging.getLogger(__name__)
 
 @dataclass
 class Solution:
-    code: str
+    code_ir: CodeIR  # Changed from code: str
     metrics: Dict[str, float]
     variant_id: str
     parent_id: str
     mutation_type: str
     generation: int
 
+    @property
+    def code(self) -> str:
+        """Convenience property to get original code."""
+        return self.code_ir.original_code
+
     def __hash__(self):
-        return hash(self.code)
+        return hash(self.code_ir.original_code)
 
     def __eq__(self, other):
         if not isinstance(other, Solution):
             return NotImplemented
-        return self.code == other.code
+        return self.code_ir.original_code == other.code_ir.original_code
 
 class ParetoArchive:
     def __init__(self):
@@ -43,9 +50,6 @@ class ParetoArchive:
         b_energy = sol_b.metrics.get("energy_joules", float('inf'))
         b_time = sol_b.metrics.get("duration_seconds", float('inf'))
 
-        # If energy is 0 (measurement failed), treat as high cost unless time is significantly better?
-        # For simplicity, we assume valid metrics.
-        
         better_in_one = (a_energy < b_energy) or (a_time < b_time)
         no_worse = (a_energy <= b_energy) and (a_time <= b_time)
         
@@ -63,7 +67,7 @@ class ParetoArchive:
             
             # Check if identical code already exists (deduplication)
             if sol.code == new_solution.code:
-                # Keep the one with better metrics (though they should be similar)
+                # Keep the one with better metrics
                 if self._dominates(new_solution, sol):
                     self.solutions.remove(sol)
                     self.solutions.append(new_solution)
@@ -80,16 +84,21 @@ class EvolutionaryEngine:
     def __init__(self, 
                  mutators: List[Mutator], 
                  runner: CodeRunner, 
+                 llm_client=None,
                  experiment_logger: Optional[ExperimentLogger] = None,
                  generations: int = 10, 
-                 population_size: int = 5):
+                 population_size: int = 5,
+                 save_ir: bool = False):
         self.mutators = mutators
         self.runner = runner
+        self.llm_client = llm_client
         self.logger = experiment_logger
         self.generations = generations
         self.population_size = population_size
+        self.save_ir = save_ir
         self.archive = ParetoArchive()
-        self.cache: Dict[str, Dict[str, float]] = {} # Cache code hash -> metrics
+        self.cache: Dict[str, Dict[str, float]] = {}
+        self.ir_generator = IRGenerator(llm_client)
 
     def _evaluate(self, code: str, test_code: str) -> Tuple[bool, Dict[str, float], str]:
         # Check cache
@@ -104,15 +113,46 @@ class EvolutionaryEngine:
             
         return success, metrics, output
 
+    def _save_ir_snapshot(self, code_ir: CodeIR, generation: int, variant_id: str):
+        """Save IR snapshot if save_ir flag is enabled."""
+        if not self.save_ir or not self.logger:
+            return
+        
+        if generation == 0:
+            # Baseline
+            snapshot_dir = os.path.join(self.logger.experiment_dir, "ir_snapshots", "baseline")
+        else:
+            # Variant
+            snapshot_dir = os.path.join(
+                self.logger.experiment_dir, 
+                "ir_snapshots", 
+                f"generation_{generation}",
+                f"variant_{variant_id[:8]}"
+            )
+        
+        try:
+            IRSerializer.save_ir(code_ir, snapshot_dir)
+        except Exception as e:
+            logger.error(f"Failed to save IR snapshot: {e}")
+
     def optimize(self, initial_code: str, test_code: str) -> List[Solution]:
         """
         Runs the hierarchical evolutionary loop with Pareto optimization.
+        Now works with CodeIR objects throughout.
         """
         root_id = str(uuid.uuid4())
         
-        # 1. Baseline
+        # Generate baseline CodeIR
+        logger.info("Generating baseline IR...")
+        baseline_ir = self.ir_generator.generate_ir(initial_code)
+        
+        # Save baseline IR snapshot
+        if self.save_ir:
+            self._save_ir_snapshot(baseline_ir, 0, root_id)
+        
+        # 1. Baseline evaluation
         logger.info("Running baseline...")
-        success, metrics, output = self._evaluate(initial_code, test_code)
+        success, metrics, output = self._evaluate(baseline_ir.original_code, test_code)
         
         if self.logger:
             self.logger.log_evaluation(
@@ -120,7 +160,7 @@ class EvolutionaryEngine:
                 variant_id=root_id,
                 parent_id="ROOT",
                 mutation_type="BASELINE",
-                code=initial_code,
+                code=baseline_ir.original_code,
                 metrics=metrics,
                 success=success
             )
@@ -130,7 +170,7 @@ class EvolutionaryEngine:
             return []
         
         baseline_solution = Solution(
-            code=initial_code,
+            code_ir=baseline_ir,
             metrics=metrics,
             variant_id=root_id,
             parent_id="ROOT",
@@ -141,39 +181,44 @@ class EvolutionaryEngine:
         
         logger.info(f"Baseline metrics: {metrics}")
 
-        # Population for next generation (starts with baseline)
+        # Population for next generation
         population = [baseline_solution]
 
         for gen in range(1, self.generations + 1):
             logger.info(f"Generation {gen}...")
             next_gen_candidates = []
             
-            # Select parents from archive + current population (elitism + diversity)
-            # For now, just use the archive as the pool
+            # Select parents from archive
             parents = self.archive.solutions
             
             if not parents:
                 break
 
-            # Generate variants
+            # Generate variants using CodeIR
             for parent in parents:
                 for mutator in self.mutators:
                     try:
-                        mut_variants = mutator.mutate(parent.code)
-                        # mut_variants is List[Tuple[str, str]] -> (code, strategy_name)
-                        for v_code, strategy_name in mut_variants:
-                            next_gen_candidates.append((v_code, parent, strategy_name))
+                        mut_variants = mutator.mutate(parent.code_ir)
+                        # mut_variants is List[Tuple[CodeIR, str]]
+                        for variant_ir, strategy_name in mut_variants:
+                            next_gen_candidates.append((variant_ir, parent, strategy_name))
                     except Exception as e:
-                        logger.error(f"Mutator failed: {e}")
+                        logger.error(f"Mutator {mutator.__class__.__name__} failed: {e}")
             
             if not next_gen_candidates:
                 logger.info("No variants produced. Stopping.")
                 break
                 
             # Evaluate candidates
-            for i, (variant_code, parent, mutator_name) in enumerate(next_gen_candidates):
+            for i, (variant_ir, parent, mutator_name) in enumerate(next_gen_candidates):
                 variant_id = str(uuid.uuid4())
-                success, metrics, output = self._evaluate(variant_code, test_code)
+                
+                # Save IR snapshot
+                if self.save_ir:
+                    self._save_ir_snapshot(variant_ir, gen, variant_id)
+                
+                # Evaluate using original code
+                success, metrics, output = self._evaluate(variant_ir.original_code, test_code)
                 
                 if self.logger:
                     self.logger.log_evaluation(
@@ -181,14 +226,14 @@ class EvolutionaryEngine:
                         variant_id=variant_id,
                         parent_id=parent.variant_id,
                         mutation_type=mutator_name,
-                        code=variant_code,
+                        code=variant_ir.original_code,
                         metrics=metrics,
                         success=success
                     )
                 
                 if success:
                     new_sol = Solution(
-                        code=variant_code,
+                        code_ir=variant_ir,
                         metrics=metrics,
                         variant_id=variant_id,
                         parent_id=parent.variant_id,

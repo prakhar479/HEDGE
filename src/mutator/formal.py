@@ -3,18 +3,19 @@ import astor
 import copy
 from typing import List, Tuple
 from .base import Mutator
+from src.core.ir_manager import CodeIR, IRGenerator
 
 class FormalMutator(Mutator):
-    def __init__(self):
-        pass
+    def __init__(self, llm_client=None):
+        self.ir_generator = IRGenerator(llm_client)
 
-    def mutate(self, code_str: str) -> List[Tuple[str, str]]:
+    def mutate(self, code_ir: CodeIR) -> List[Tuple[CodeIR, str]]:
         """
-        Applies formal AST transformations.
+        Applies formal AST transformations to original code, generates new IRs.
         """
         variants = []
         try:
-            tree = ast.parse(code_str)
+            tree = ast.parse(code_ir.original_code)
         except SyntaxError:
             return []
 
@@ -30,7 +31,10 @@ class FormalMutator(Mutator):
             transformer.visit(new_tree)
             if transformer.mutated:
                 try:
-                    variants.append((astor.to_source(new_tree), name))
+                    new_code = astor.to_source(new_tree)
+                    # Generate new CodeIR for the transformed code
+                    new_ir = self.ir_generator.generate_ir(new_code)
+                    variants.append((new_ir, name))
                 except Exception:
                     pass
         

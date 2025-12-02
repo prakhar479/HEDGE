@@ -4,22 +4,24 @@ import random
 import copy
 from typing import List, Tuple
 from .base import Mutator
+from src.core.ir_manager import CodeIR, IRGenerator
 
 class RobustMutator(Mutator):
-    def __init__(self):
+    def __init__(self, llm_client=None):
+        self.ir_generator = IRGenerator(llm_client)
         self.transformers = [
             RangeOptimizer(),
             AugAssignOptimizer(),
             ListCompOptimizer()
         ]
 
-    def mutate(self, code_str: str) -> List[Tuple[str, str]]:
+    def mutate(self, code_ir: CodeIR) -> List[Tuple[CodeIR, str]]:
         """
         Applies random AST transformations to generate variants.
         """
         variants = []
         try:
-            tree = ast.parse(code_str)
+            tree = ast.parse(code_ir.original_code)
         except SyntaxError:
             return []
 
@@ -35,7 +37,8 @@ class RobustMutator(Mutator):
                 ast.fix_missing_locations(new_tree)
                 try:
                     source = astor.to_source(new_tree)
-                    variants.append((source, f"Robust_{transformer.__class__.__name__}"))
+                    new_ir = self.ir_generator.generate_ir(source)
+                    variants.append((new_ir, f"Robust_{transformer.__class__.__name__}"))
                 except Exception:
                     pass
         
