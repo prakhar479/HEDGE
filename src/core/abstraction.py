@@ -8,9 +8,6 @@ class AbstractionManager:
         self.llm = llm_client
 
     def lift(self, code: str) -> str:
-        """
-        Lifts the code to high-level algorithmic intent (L1).
-        """
         prompt = f"""You are an expert computer scientist analyzing code for optimization.
 
 Analyze the following Python code and provide a concise algorithmic summary.
@@ -25,9 +22,6 @@ Algorithmic Intent:"""
         return self.llm.complete(prompt).strip()
 
     def lower(self, intent: str) -> str:
-        """
-        Lowers the high-level intent to executable code (L2).
-        """
         prompt = f"""You are an expert Python programmer specializing in high-performance code.
 
 Implement the following algorithmic intent in efficient, production-ready Python code.

@@ -1,6 +1,7 @@
-import os
 import sys
-import pytest
+from pathlib import Path
+sys.path.append(str(Path(__file__).parent.parent))
+
 from src.green_gym.runner import CodeRunner
 
 def test_runner_success():

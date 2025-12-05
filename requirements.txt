@@ -1,10 +1,5 @@
-codecarbon
-psutil
-pytest
-numpy
-astor
-openai
-google-generativeai
-python-dotenv
+pydantic>=2.0
+pytest>=7.0
+rich
 matplotlib
-seaborn
+python-dotenv

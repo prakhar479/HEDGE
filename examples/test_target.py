@@ -7,8 +7,9 @@ def test():
     # Test case 2: Reverse sorted
     assert candidate.bubble_sort([5, 4, 3, 2, 1]) == [1, 2, 3, 4, 5]
     
-    # Test case 3: Random list (larger for energy measurement)
-    random.seed(42)
-    large_list = [random.randint(0, 1000) for _ in range(1000)]
-    sorted_list = sorted(large_list)
-    assert candidate.bubble_sort(large_list) == sorted_list
+    for _ in range(10):
+        # Test case 3: Random list (larger for energy measurement)
+        random.seed(42)
+        large_list = [random.randint(0, 1000) for _ in range(1000)]
+        sorted_list = sorted(large_list)
+        assert candidate.bubble_sort(large_list) == sorted_list

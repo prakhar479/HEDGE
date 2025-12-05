@@ -11,14 +11,10 @@ class LLMClient(ABC):
         pass
 
 class MockLLMClient(LLMClient):
-    """
-    A mock LLM client for demonstration purposes.
-    It returns pre-defined responses based on keywords in the prompt.
-    """
     def complete(self, prompt: str, stop: Optional[List[str]] = None) -> str:
         logger.info(f"MockLLM received prompt: {prompt[:50]}...")
         
-        # Lifting Logic (Code -> Intent)
+
         if "Summarize the algorithmic intent" in prompt or "Analyze the following Python code" in prompt:
             if "bubble_sort" in prompt or ("for i in range(n)" in prompt and "for j in range" in prompt):
                 return "Sort a list of numbers in ascending order."
@@ -28,7 +24,7 @@ class MockLLMClient(LLMClient):
                 return "Search for an element in a list and return its index."
             return "Perform a computation."
 
-        # Lowering Logic (Intent -> Code)
+
         if "Implement the following" in prompt or "Implement" in prompt:
             if "Sort a list of numbers" in prompt:
                 # Return a better implementation (Merge Sort or Python's sorted)
@@ -67,7 +63,7 @@ def search_list(items, target):
         return -1
 """
         
-        # L1 Mutation Logic (Optimize Intent)
+
         if "Optimize the following algorithmic intent" in prompt:
             if "Sort a list of numbers" in prompt:
                 return "Sort a list of numbers using an O(n log n) algorithm like Merge Sort or Quick Sort."
@@ -79,9 +75,6 @@ def search_list(items, target):
         return ""
 
 def get_llm_client() -> LLMClient:
-    """
-    Factory function to return the appropriate LLM client based on environment variables.
-    """
     # Try OpenAI
     openai_key = os.environ.get("OPENAI_API_KEY")
     if openai_key:

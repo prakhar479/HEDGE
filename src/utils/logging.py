@@ -18,7 +18,6 @@ class ExperimentLogger:
         logger.info(f"Experiment logging to: {self.experiment_dir}")
 
     def log_config(self, config: Dict[str, Any]):
-        """Logs the experiment configuration."""
         with open(self.config_file, "w") as f:
             json.dump(config, f, indent=2)
 
@@ -30,7 +29,6 @@ class ExperimentLogger:
                        code: str, 
                        metrics: Dict[str, Any],
                        success: bool):
-        """Logs a single evaluation event."""
         entry = {
             "timestamp": time.time(),
             "generation": generation,
@@ -39,8 +37,6 @@ class ExperimentLogger:
             "mutation_type": mutation_type,
             "metrics": metrics,
             "success": success,
-            # We might not want to log full code every time if it's large, 
-            # but for this scale it's fine and useful for debugging.
             "code_snippet": code[:100] + "..." if len(code) > 100 else code,
             "code_hash": hash(code)
         }
@@ -49,7 +45,6 @@ class ExperimentLogger:
             f.write(json.dumps(entry) + "\n")
 
     def save_artifact(self, filename: str, content: str):
-        """Saves an artifact (e.g., best code) to the experiment directory."""
         path = os.path.join(self.experiment_dir, filename)
         with open(path, "w") as f:
             f.write(content)
