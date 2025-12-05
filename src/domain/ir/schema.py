@@ -101,6 +101,20 @@ class DictExpr(Expression):
     keys: List[Optional[Expression]]
     values: List[Expression]
 
+class SetExpr(Expression):
+    elts: List[Expression]
+    ctx: Literal["Load", "Store", "Del"] = "Load"
+
+class Lambda(Expression):
+    args: List[str]
+    body: Expression
+
+class Yield(Expression):
+    value: Optional[Expression] = None
+
+class YieldFrom(Expression):
+    value: Expression
+
 # --- Statements ---
 
 class Assign(Statement):
@@ -174,6 +188,25 @@ class ImportFrom(Statement):
     names: List[tuple[str, Optional[str]]]  # (name, asname)
     level: int = 0
 
+class ExceptHandler(IRNode):
+    type: Optional[Expression] = None
+    name: Optional[str] = None
+    body: Block
+
+class Try(Statement):
+    body: Block
+    handlers: List[ExceptHandler]
+    orelse: Optional[Block] = None
+    finalbody: Optional[Block] = None
+
+class WithItem(IRNode):
+    context_expr: Expression
+    optional_vars: Optional[Expression] = None
+
+class With(Statement):
+    items: List[WithItem]
+    body: Block
+
 # --- Top Level ---
 
 class Module(IRNode):
@@ -184,5 +217,8 @@ Block.model_rebuild()
 If.model_rebuild()
 While.model_rebuild()
 For.model_rebuild()
+Try.model_rebuild()
+With.model_rebuild()
+ExceptHandler.model_rebuild()
 FunctionDef.model_rebuild()
 ClassDef.model_rebuild()

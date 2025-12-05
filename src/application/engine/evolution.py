@@ -212,6 +212,9 @@ class EvolutionaryEngine:
         logger.info(f"Baseline metrics: {metrics}")
         
         # Evolutionary loop
+        import random
+        import math
+
         for gen in range(1, self.generations + 1):
             logger.info(f"Generation {gen}/{self.generations}...")
             next_gen_candidates = []
@@ -221,8 +224,55 @@ class EvolutionaryEngine:
             if not parents:
                 break
             
+            # --- Probabilistic Selection ---
+            # Calculate fitness scores
+            # Fitness = 1 / (Energy * Time) (Simplified)
+            # We want to minimize Energy and Time, so maximize Fitness.
+            
+            fitness_scores = []
+            for p in parents:
+                energy = p.metrics.get("energy_joules", 1e-6)
+                duration = p.metrics.get("duration_seconds", 1e-6)
+                # Avoid division by zero
+                if energy <= 0: energy = 1e-9
+                if duration <= 0: duration = 1e-9
+                
+                # We can weigh energy more if desired, but let's keep it balanced for now
+                score = 1.0 / (energy * duration)
+                fitness_scores.append(score)
+            
+            # Normalize scores to probabilities (Softmax-like or simple proportion)
+            # Using simple proportion for now, but softmax handles outliers better?
+            # Let's use Softmax to ensure "slightly worse" gets "slightly less" chance.
+            
+            # Shift for numerical stability
+            max_score = max(fitness_scores)
+            exp_scores = [math.exp((s - max_score)) for s in fitness_scores] # This might be too aggressive if scores vary widely
+            
+            # Let's use a simpler proportional approach but with a baseline
+            # Or just use the raw fitness if they are close.
+            # The user asked for: "relative performance is reflected in their chances"
+            
+            total_fitness = sum(fitness_scores)
+            probs = [s / total_fitness for s in fitness_scores]
+            
+            # Select parents based on probabilities
+            # We want to generate roughly same number of variants as before?
+            # Or just pick N parents?
+            # Let's pick parents for each mutation slot.
+            
+            # For each parent (selected probabilistically), apply mutators
+            # We'll try to generate roughly len(parents) * len(mutators) variants
+            
+            num_selections = len(parents)
+            selected_indices = random.choices(range(len(parents)), weights=probs, k=num_selections)
+            selected_parents = [parents[i] for i in selected_indices]
+            
+            # Add diversity: also include some random parents that might have low fitness but are unique?
+            # For now, the probabilistic selection handles "slightly worse" ones.
+            
             # Generate variants
-            for parent in parents:
+            for parent in selected_parents:
                 for mutator in self.mutators:
                     try:
                         variants = mutator.mutate(parent.ir)

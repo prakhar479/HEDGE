@@ -141,9 +141,11 @@ python3 -m pytest tests/test_parser.py -v
 
 ## 📚 Documentation
 
-- **CLI.md** - Complete CLI documentation
-- **TESTING.md** - Testing guide
-- **src/** - Inline code documentation
+- **[Documentation Hub](docs/README.md)** - Central entry point for all docs
+- **[Installation](docs/SETUP.md)** - Setup guide
+- **[CLI Reference](docs/CLI.md)** - Command line usage
+- **[Architecture](docs/ARCHITECTURE.md)** - System design and IR details
+- **[Mutators](docs/MUTATORS.md)** - Mutation strategies explained
 
 ## 🔬 Key Concepts
 

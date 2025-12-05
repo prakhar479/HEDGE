@@ -114,6 +114,37 @@ class PythonCodeGenerator:
             dots = "." * stmt.level
             return f"{prefix}from {dots}{module} import {', '.join(names)}"
             
+        elif isinstance(stmt, schema.Try):
+            lines = [f"{prefix}try:"]
+            lines.append(self._generate_block(stmt.body, indent + 1))
+            
+            for handler in stmt.handlers:
+                name_part = f" as {handler.name}" if handler.name else ""
+                type_part = f" {self._generate_expr(handler.type)}" if handler.type else ""
+                lines.append(f"{prefix}except{type_part}{name_part}:")
+                lines.append(self._generate_block(handler.body, indent + 1))
+                
+            if stmt.orelse:
+                lines.append(f"{prefix}else:")
+                lines.append(self._generate_block(stmt.orelse, indent + 1))
+                
+            if stmt.finalbody:
+                lines.append(f"{prefix}finally:")
+                lines.append(self._generate_block(stmt.finalbody, indent + 1))
+            return "\n".join(lines)
+            
+        elif isinstance(stmt, schema.With):
+            items = []
+            for item in stmt.items:
+                s = self._generate_expr(item.context_expr)
+                if item.optional_vars:
+                    s += f" as {self._generate_expr(item.optional_vars)}"
+                items.append(s)
+            
+            lines = [f"{prefix}with {', '.join(items)}:"]
+            lines.append(self._generate_block(stmt.body, indent + 1))
+            return "\n".join(lines)
+            
         return f"{prefix}# Unsupported statement: {type(stmt).__name__}"
 
     def _generate_expr(self, expr: schema.Expression) -> str:
@@ -180,5 +211,24 @@ class PythonCodeGenerator:
                 val = self._generate_expr(v)
                 items.append(f"{key}: {val}")
             return f"{{{', '.join(items)}}}"
+            
+        elif isinstance(expr, schema.SetExpr):
+            elts = [self._generate_expr(e) for e in expr.elts]
+            if not elts:
+                return "set()"
+            return f"{{{', '.join(elts)}}}"
+            
+        elif isinstance(expr, schema.Lambda):
+            args = ", ".join(expr.args)
+            body = self._generate_expr(expr.body)
+            return f"lambda {args}: {body}"
+            
+        elif isinstance(expr, schema.Yield):
+            if expr.value:
+                return f"yield {self._generate_expr(expr.value)}"
+            return "yield"
+            
+        elif isinstance(expr, schema.YieldFrom):
+            return f"yield from {self._generate_expr(expr.value)}"
             
         return f"<Unsupported Expr: {type(expr).__name__}>"

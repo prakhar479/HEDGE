@@ -51,21 +51,21 @@ If you don't provide any API key, HEDGE will use `MockLLMClient` which demonstra
 
 #### Example 1: Bubble Sort Optimization
 ```bash
-python main.py --target examples/target.py --tests examples/test_target.py --generations 5
+python hedge.py optimize examples/target.py examples/test_target.py --generations 5
 ```
 
 Expected outcome: HEDGE will optimize the O(n²) bubble sort to use Python's built-in `sorted()` (Timsort, O(n log n)).
 
 #### Example 2: Fibonacci Optimization
 ```bash
-python main.py --target examples/target_fib.py --tests examples/test_target_fib.py --generations 5
+python hedge.py optimize examples/target_fib.py examples/test_target_fib.py --generations 5
 ```
 
 Expected outcome: HEDGE will optimize the O(2ⁿ) recursive Fibonacci to an O(n) iterative or memoized version.
 
 #### Example 3: Search Optimization
 ```bash
-python main.py --target examples/target_search.py --tests examples/test_target_search.py --generations 5
+python hedge.py optimize examples/target_search.py examples/test_target_search.py --generations 5
 ```
 
 Expected outcome: HEDGE may suggest optimizations like using `enumerate()` or Python's built-in `list.index()`.
@@ -88,7 +88,7 @@ HEDGE will show you:
 
 ### Customizing Generations
 ```bash
-python main.py --target your_code.py --tests your_tests.py --generations 10
+python hedge.py optimize your_code.py your_tests.py --generations 10
 ```
 
 ### Monitoring Energy Consumption
@@ -117,6 +117,6 @@ This is normal on some systems. HEDGE will fall back to execution time as the op
 ## What's Next?
 
 - Explore the `src/` directory to understand the architecture
-- Read `walkthrough.md` for implementation details
+- Read `docs/ARCHITECTURE.md` for implementation details
 - Check the experiment logs to see how mutations performed
 - Try optimizing your own code!

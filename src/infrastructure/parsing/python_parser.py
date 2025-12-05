@@ -94,7 +94,32 @@ class PythonParser:
                 names=[(n.name, n.asname) for n in node.names],
                 level=node.level
             )
+        elif isinstance(node, ast.Try):
+            return schema.Try(
+                body=self._visit_block(node.body),
+                handlers=[self._visit_except_handler(h) for h in node.handlers],
+                orelse=self._visit_block(node.orelse) if node.orelse else None,
+                finalbody=self._visit_block(node.finalbody) if node.finalbody else None
+            )
+        elif isinstance(node, ast.With):
+            return schema.With(
+                items=[self._visit_with_item(i) for i in node.items],
+                body=self._visit_block(node.body)
+            )
         return None # Unsupported statement
+
+    def _visit_except_handler(self, node: ast.ExceptHandler) -> schema.ExceptHandler:
+        return schema.ExceptHandler(
+            type=self._visit_expr(node.type) if node.type else None,
+            name=node.name,
+            body=self._visit_block(node.body)
+        )
+
+    def _visit_with_item(self, node: ast.withitem) -> schema.WithItem:
+        return schema.WithItem(
+            context_expr=self._visit_expr(node.context_expr),
+            optional_vars=self._visit_expr(node.optional_vars) if node.optional_vars else None
+        )
 
     def _visit_expr(self, node: ast.expr) -> schema.Expression:
         if isinstance(node, ast.Constant):
@@ -160,6 +185,24 @@ class PythonParser:
             return schema.DictExpr(
                 keys=[self._visit_expr(k) if k else None for k in node.keys],
                 values=[self._visit_expr(v) for v in node.values]
+            )
+        elif isinstance(node, ast.Set):
+            return schema.SetExpr(
+                elts=[self._visit_expr(e) for e in node.elts],
+                ctx=type(node.ctx).__name__ if hasattr(node, 'ctx') else "Load"
+            )
+        elif isinstance(node, ast.Lambda):
+            return schema.Lambda(
+                args=[arg.arg for arg in node.args.args],
+                body=self._visit_expr(node.body)
+            )
+        elif isinstance(node, ast.Yield):
+            return schema.Yield(
+                value=self._visit_expr(node.value) if node.value else None
+            )
+        elif isinstance(node, ast.YieldFrom):
+            return schema.YieldFrom(
+                value=self._visit_expr(node.value)
             )
         
         # Fallback for unsupported expressions

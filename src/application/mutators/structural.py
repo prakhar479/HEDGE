@@ -72,6 +72,22 @@ class StructuralMutator(Mutator):
                 logger.debug("Successfully created swap variant")
         except Exception as e:
             logger.error(f"Swap mutation failed: {e}")
+
+        # Strategy 3: Augmented Assignment
+        try:
+            variant = self._mutate_aug_assign(ir)
+            if variant:
+                variants.append((variant, "Structural_AugAssign"))
+        except Exception as e:
+            logger.error(f"AugAssign mutation failed: {e}")
+
+        # Strategy 4: Range Optimization
+        try:
+            variant = self._mutate_range(ir)
+            if variant:
+                variants.append((variant, "Structural_Range"))
+        except Exception as e:
+            logger.error(f"Range mutation failed: {e}")
             
         return variants
     
@@ -147,6 +163,69 @@ class StructuralMutator(Mutator):
         binop.left, binop.right = binop.right, binop.left
         
         return new_ir
+
+    def _mutate_aug_assign(self, ir: schema.Module) -> schema.Module:
+        """Replace x = x + y with x += y."""
+        new_ir = copy.deepcopy(ir)
+        blocks = self._find_blocks(new_ir)
+        
+        candidates = []
+        for block in blocks:
+            for i, stmt in enumerate(block.statements):
+                if isinstance(stmt, schema.Assign) and len(stmt.targets) == 1:
+                    target = stmt.targets[0]
+                    if isinstance(target, schema.Name) and isinstance(stmt.value, schema.BinaryOp):
+                        # Check if target is used in binary op
+                        # x = x + y or x = y + x
+                        if isinstance(stmt.value.left, schema.Name) and stmt.value.left.id == target.id:
+                            candidates.append((block, i, stmt, stmt.value.op, stmt.value.right))
+                        elif isinstance(stmt.value.right, schema.Name) and stmt.value.right.id == target.id and stmt.value.op in ['+', '*']:
+                            candidates.append((block, i, stmt, stmt.value.op, stmt.value.left))
+                            
+        if not candidates:
+            return None
+            
+        block, idx, stmt, op, value = random.choice(candidates)
+        block.statements[idx] = schema.AugAssign(
+            target=stmt.targets[0],
+            op=op,
+            value=value
+        )
+        return new_ir
+
+    def _mutate_range(self, ir: schema.Module) -> schema.Module:
+        """Replace range(0, n) with range(n)."""
+        new_ir = copy.deepcopy(ir)
+        calls = self._find_calls(new_ir)
+        
+        candidates = []
+        for call in calls:
+            if isinstance(call.func, schema.Name) and call.func.id == 'range' and len(call.args) == 2:
+                if isinstance(call.args[0], schema.Constant) and call.args[0].value == 0:
+                    candidates.append(call)
+                    
+        if not candidates:
+            return None
+            
+        call = random.choice(candidates)
+        call.args = [call.args[1]]
+        return new_ir
+
+    def _find_calls(self, node) -> List[schema.Call]:
+        """Recursively find all Call nodes."""
+        calls = []
+        if isinstance(node, schema.Call):
+            calls.append(node)
+            
+        if hasattr(node, '__dict__'):
+            for key, value in node.__dict__.items():
+                if isinstance(value, list):
+                    for item in value:
+                        if hasattr(item, '__dict__'):
+                            calls.extend(self._find_calls(item))
+                elif hasattr(value, '__dict__'):
+                    calls.extend(self._find_calls(value))
+        return calls
     
     def _find_blocks(self, node) -> List[schema.Block]:
         """Recursively find all Block nodes in the IR tree."""

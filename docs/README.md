@@ -1,36 +1,28 @@
-# HEDGE Documentation
+# HEDGE Documentation Portal
 
-## Core Documentation
+Welcome to the documentation for HEDGE (Hierarchical Evolutionary Darwin-Green Engine).
 
-### User Guides
-- [CLI Usage](CLI.md) - Complete command-line interface documentation
-- [Testing Guide](TESTING.md) - How to run and write tests
-- [Setup Guide](SETUP.md) - Installation and configuration
+## 📚 Guides
 
-### Architecture
-- Main entry point: `hedge.py`
-- IR schema: `src/domain/ir/schema.py`
-- Mutators: `src/application/mutators/`
-- Engine: `src/application/engine/evolution.py`
+-   **[Setup Guide](SETUP.md)**: Installation, environment configuration, and running your first experiment.
+-   **[CLI Reference](CLI.md)**: Detailed documentation for the `hedge.py` command-line interface.
+-   **[Contributing](CONTRIBUTING.md)**: Guidelines for contributing code and docs to HEDGE.
 
-## Quick Reference
+## 🏗️ Technical Documentation
 
-### Common Commands
-```bash
-# Optimize
-python3 hedge.py optimize <target> <tests> [--visualize]
+-   **[Architecture](ARCHITECTURE.md)**: High-level system design, IR structure, and pipeline data flow.
+-   **[Mutators](MUTATORS.md)**: Deep dive into the mutation strategies (Structural, Semantic, Advanced).
+-   **[Directory Structure](../README.md#architecture)**: Overview of the codebase layout.
 
-# Analyze
-python3 hedge.py analyze <code>
+## 🧪 Development
 
-# Visualize
-python3 hedge.py visualize <results_dir>
-```
+-   **Testing**: Run tests using `pytest`.
+    ```bash
+    python -m pytest tests/ -v
+    ```
 
-### Architecture Principles
-1. **IR-Only**: All mutations operate on Intermediate Representation
-2. **Clean Architecture**: Domain → Application → Infrastructure
-3. **Type Safety**: Pydantic models for IR nodes
-4. **Validation Gates**: All variants validated before execution
+## 🔍 Key Concepts
 
-See individual module docstrings for implementation details.
+-   **IR-Only**: All optimizations occur on the Intermediate Representation.
+-   **Pareto Optimization**: Balancing Energy vs Time.
+-   **Validation**: Every mutation is validated before execution.
