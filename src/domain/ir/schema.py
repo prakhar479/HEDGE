@@ -112,6 +112,11 @@ class Lambda(Expression):
 class Yield(Expression):
     value: Optional[Expression] = None
 
+class Slice(Expression):
+    lower: Optional[Expression] = None
+    upper: Optional[Expression] = None
+    step: Optional[Expression] = None
+
 class YieldFrom(Expression):
     value: Expression
 

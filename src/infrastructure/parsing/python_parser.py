@@ -204,6 +204,12 @@ class PythonParser:
             return schema.YieldFrom(
                 value=self._visit_expr(node.value)
             )
+        elif isinstance(node, ast.Slice):
+            return schema.Slice(
+                lower=self._visit_expr(node.lower) if node.lower else None,
+                upper=self._visit_expr(node.upper) if node.upper else None,
+                step=self._visit_expr(node.step) if node.step else None
+            )
         
         # Fallback for unsupported expressions
         return schema.Constant(value=f"<Unsupported: {type(node).__name__}>", kind="str")

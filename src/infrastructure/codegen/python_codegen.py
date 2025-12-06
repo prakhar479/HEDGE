@@ -231,4 +231,11 @@ class PythonCodeGenerator:
         elif isinstance(expr, schema.YieldFrom):
             return f"yield from {self._generate_expr(expr.value)}"
             
+        elif isinstance(expr, schema.Slice):
+            lower = self._generate_expr(expr.lower) if expr.lower else ""
+            upper = self._generate_expr(expr.upper) if expr.upper else ""
+            if expr.step:
+                return f"{lower}:{upper}:{self._generate_expr(expr.step)}"
+            return f"{lower}:{upper}"
+            
         return f"<Unsupported Expr: {type(expr).__name__}>"

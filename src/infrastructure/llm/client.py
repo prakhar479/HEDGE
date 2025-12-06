@@ -50,20 +50,37 @@ class GeminiClient(LLMClient):
             raise
 
     def complete(self, prompt: str, stop: Optional[List[str]] = None) -> str:
-        try:
-            # Gemini's stop_sequences are passed in generation_config
-            generation_config = {}
-            if stop:
-                generation_config["stop_sequences"] = stop
-            
-            response = self.model.generate_content(
-                prompt,
-                generation_config=generation_config
-            )
-            return response.text
-        except Exception as e:
-            logger.error(f"Gemini API call failed: {e}")
-            return ""
+        import time
+        import random
+        
+        max_retries = 5
+        base_delay = 5
+        
+        for attempt in range(max_retries):
+            try:
+                # Gemini's stop_sequences are passed in generation_config
+                generation_config = {}
+                if stop:
+                    generation_config["stop_sequences"] = stop
+                
+                response = self.model.generate_content(
+                    prompt,
+                    generation_config=generation_config
+                )
+                return response.text
+            except Exception as e:
+                error_str = str(e).lower()
+                if "429" in error_str or "quota" in error_str:
+                    if attempt < max_retries - 1:
+                        # Parse retry delay from error if possible, otherwise use backoff
+                        # (Simple backoff for now)
+                        delay = base_delay * (2 ** attempt) + (random.random() * 1.0)
+                        logger.warning(f"Gemini API rate limit hit (Attempt {attempt+1}/{max_retries}). Retrying in {delay:.2f}s...")
+                        time.sleep(delay)
+                        continue
+                logger.error(f"Gemini API call failed: {e}")
+                return ""
+        return ""
 
 def create_llm_client(provider: str, api_key: str, model: str = None) -> LLMClient:
     """Factory function to create LLM clients."""

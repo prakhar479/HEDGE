@@ -110,7 +110,7 @@ def test_{entry_point}():
     for i, input_str in enumerate(inputs):
         # Clean up the input string
         input_str = input_str.strip()
-        test_code += f"        {input_str},  # Test case {i+1}\n"
+        test_code += f"        ({input_str}),  # Test case {i+1}\n"
 
     test_code += "    ]\n\n"
     test_code += f'''    for i, test_input in enumerate(test_cases):
