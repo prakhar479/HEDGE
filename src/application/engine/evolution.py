@@ -148,7 +148,7 @@ class EvolutionaryEngine:
         
         return success, metrics, output
     
-    def optimize(self, initial_code: str, test_code: str) -> List[Solution]:
+    def optimize(self, initial_code: str, test_code: str, progress_callback=None) -> List[Solution]:
         """
         Main optimization loop.
         
@@ -162,6 +162,11 @@ class EvolutionaryEngine:
             d. Evaluate code
             e. Update Pareto archive
         
+        Args:
+            initial_code: Source code to optimize
+            test_code: Test harness code
+            progress_callback: Optional callable(candidates_count: int) to report progress
+            
         Returns:
             List of Pareto-optimal solutions, or empty list if baseline fails
         """
@@ -300,10 +305,17 @@ class EvolutionaryEngine:
                 break
             
             # Evaluate variants
+            candidates_evaluated = 0
             for variant_ir, parent, mutator_name in next_gen_candidates:
                 variant_id = str(uuid.uuid4())
                 
                 success, metrics, output = self._evaluate(variant_ir, test_code)
+                candidates_evaluated += 1
+                
+                if progress_callback:
+                    # Report total progress across usage? Or just update call
+                    # Let's pass the iteration count or something useful
+                    progress_callback(1) 
                 
                 if success:
                     new_sol = Solution(

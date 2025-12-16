@@ -129,9 +129,9 @@ import time
 
 # Add current dir to path so we can import candidate
 sys.path.append('{tmpdir}')
-
-# Add project root to path so we can import src
 sys.path.append('{os.getcwd()}')
+sys.path.insert(0, '{os.getcwd()}') # Prioritize CWD
+
 
 try:
     from src.green_gym.monitor import EnergyMonitor
@@ -139,7 +139,13 @@ except ImportError:
     print("Error: Could not import EnergyMonitor. Check PYTHONPATH.", file=sys.stderr)
     sys.exit(1)
 
+
 import candidate
+# Hack to allow 'from complex_target import process_data' to work when we only have candidate.py
+sys.modules['complex_target'] = candidate
+sys.modules['target_complex'] = candidate
+sys.modules['target'] = candidate
+sys.modules['target_opt'] = candidate
 
 {test_code_str}
 

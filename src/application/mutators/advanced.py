@@ -2,168 +2,256 @@
 Advanced IR mutators implementing state-of-the-art program transformations.
 """
 import copy
-from typing import List, Tuple, Optional
+import operator
+from typing import List, Tuple, Any, Optional
+
 from src.domain.interfaces import Mutator
 from src.domain.ir import schema
+from src.domain.ir.utils import NodeTransformer
 from src.domain.ir.context import MutationContext
 
-class ConstantFoldingMutator(Mutator):
-    """
-    Performs constant folding optimization.
-    Evaluates constant expressions at compile-time.
-    """
+class ConstantFoldingTransformer(NodeTransformer):
+    """Transformer for constant folding."""
     
+    def __init__(self):
+        self.changed = False
+        self.ops = {
+            '+': operator.add,
+            '-': operator.sub,
+            '*': operator.mul,
+            '/': operator.truediv,
+            '//': operator.floordiv,
+            '%': operator.mod,
+            '**': operator.pow,
+            '<<': operator.lshift,
+            '>>': operator.rshift,
+            '|': operator.or_,
+            '^': operator.xor,
+            '&': operator.and_,
+            '==': operator.eq,
+            '!=': operator.ne,
+            '<': operator.lt,
+            '<=': operator.le,
+            '>': operator.gt,
+            '>=': operator.ge,
+        }
+
+    def visit_BinaryOp(self, node: schema.BinaryOp) -> schema.Expression:
+        # First visit children to fold them if possible
+        node = self.generic_visit(node)
+        
+        if isinstance(node.left, schema.Constant) and isinstance(node.right, schema.Constant):
+            try:
+                op_func = self.ops.get(node.op)
+                if op_func:
+                    val = op_func(node.left.value, node.right.value)
+                    self.changed = True
+                    return schema.Constant(
+                        value=val,
+                        kind=type(val).__name__
+                    )
+            except Exception:
+                # Division by zero, overflow, etc.
+                pass
+        return node
+
+    def visit_BoolOp(self, node: schema.BoolOp) -> schema.Expression:
+        node = self.generic_visit(node)
+        # Short circuit logic simplification could go here
+        # e.g. True or X -> True
+        # For now, simplistic folding if all are constant
+        if all(isinstance(v, schema.Constant) for v in node.values):
+            try:
+                if node.op == 'and':
+                    val = all(v.value for v in node.values)
+                elif node.op == 'or':
+                    val = any(v.value for v in node.values)
+                else:
+                    return node
+                
+                self.changed = True
+                return schema.Constant(value=val, kind="bool")
+            except:
+                pass
+        return node
+        
+    def visit_UnaryOp(self, node: schema.UnaryOp) -> schema.Expression:
+        node = self.generic_visit(node)
+        if isinstance(node.operand, schema.Constant):
+            try:
+                if node.op == 'not':
+                    val = not node.operand.value
+                elif node.op == '-':
+                    val = -node.operand.value
+                elif node.op == '+':
+                    val = +node.operand.value
+                elif node.op == '~':
+                    val = ~node.operand.value
+                else:
+                    return node
+                
+                self.changed = True
+                return schema.Constant(value=val, kind=type(val).__name__)
+            except:
+                pass
+        return node
+
+
+class ConstantFoldingMutator(Mutator):
     def mutate(self, ir: schema.Module) -> List[Tuple[schema.Module, str]]:
         new_ir = copy.deepcopy(ir)
-        changed = self._fold_constants(new_ir)
+        transformer = ConstantFoldingTransformer()
+        transformer.visit(new_ir)
         
-        if changed:
+        if transformer.changed:
             return [(new_ir, "Advanced_ConstantFolding")]
         return []
+
+
+class DCETransformer(NodeTransformer):
+    """Transformer for Dead Code Elimination."""
     
-    def _fold_constants(self, node) -> bool:
-        """Recursively fold constant expressions. Returns True if changes made."""
-        changed = False
+    def __init__(self, context: MutationContext):
+        self.context = context
+        self.changed = False
+
+    def visit_Block(self, node: schema.Block) -> schema.Block:
+        new_stmts = []
+        terminated = False
         
-        if isinstance(node, schema.BinaryOp):
-            # Try to evaluate if both operands are constants
-            if isinstance(node.left, schema.Constant) and isinstance(node.right, schema.Constant):
-                try:
-                    result = self._evaluate_binop(node.left.value, node.op, node.right.value)
-                    # Replace the BinaryOp with a Constant
-                    # Note: This requires modifying the parent node, which is tricky
-                    # For now, we'll just mark it as changed
-                    changed = True
-                except:
-                    pass
-        
-        # Recurse through the tree
-        if hasattr(node, '__dict__'):
-            for key, value in node.__dict__.items():
-                if isinstance(value, list):
-                    for item in value:
-                        if hasattr(item, '__dict__'):
-                            changed |= self._fold_constants(item)
-                elif hasattr(value, '__dict__'):
-                    changed |= self._fold_constants(value)
-        
-        return changed
+        for stmt in node.statements:
+            if terminated:
+                # This statement is unreachable
+                self.changed = True
+                continue
+                
+            # Visit the statement to process nested blocks
+            new_stmt = self.visit(stmt)
+            if new_stmt is None:
+                continue # Statement removed by recursive visit
+                
+            # Check for pure expression statements (useless)
+            if isinstance(new_stmt, schema.ExprStmt):
+                if self.context.is_pure(new_stmt.value):
+                    self.changed = True
+                    continue # Remove useless expression
+            
+            new_stmts.append(new_stmt)
+            
+            # Check if this statement terminates control flow
+            if isinstance(new_stmt, (schema.Return, schema.Break, schema.Continue, schema.Raise)):
+                terminated = True
+                
+        node.statements = new_stmts
+        return node
     
-    def _evaluate_binop(self, left, op: str, right):
-        """Evaluate a binary operation on constants."""
-        ops = {
-            '+': lambda a, b: a + b,
-            '-': lambda a, b: a - b,
-            '*': lambda a, b: a * b,
-            '/': lambda a, b: a / b,
-            '//': lambda a, b: a // b,
-            '%': lambda a, b: a % b,
-            '**': lambda a, b: a ** b,
-        }
-        return ops.get(op, lambda a, b: None)(left, right)
+    def visit_If(self, node: schema.If) -> Optional[schema.Statement]:
+        node = self.generic_visit(node)
+        # If test is constant True/False
+        if isinstance(node.test, schema.Constant):
+            self.changed = True
+            if node.test.value:
+                # Return body statements. But If is a Statement, body is a Block.
+                # We can't replace a Statement with a list of Statements directly in visit_If 
+                # because the parent visit_Block expects a Statement.
+                # BUT: `visit` in NodeTransformer handles list return! 
+                # Wait, my simplistic NodeTransformer implementation handles list return for lists, 
+                # but visit_If is visiting a specific field.
+                # In generic_visit for Block statements, we handle it if visit returns list?
+                # Let's check NodeTransformer implementation in utils.py...
+                # "if isinstance(item, schema.IRNode): new_node = self.visit(item) ... elif isinstance(new_node, list): new_values.extend(new_node)"
+                # Yes! It supports returning a list of statements.
+                return node.body.statements
+            else:
+                return node.orelse.statements if node.orelse else None
+        return node
+
 
 class DeadCodeEliminationMutator(Mutator):
-    """
-    Removes unreachable code and unused definitions.
-    """
-    
     def mutate(self, ir: schema.Module) -> List[Tuple[schema.Module, str]]:
         new_ir = copy.deepcopy(ir)
+        # We need a fresh context for the new IR
         context = MutationContext(new_ir)
+        transformer = DCETransformer(context)
+        transformer.visit(new_ir)
         
-        removed = self._remove_dead_code(new_ir, context)
-        
-        if removed:
+        if transformer.changed:
             return [(new_ir, "Advanced_DeadCodeElimination")]
         return []
-    
-    def _remove_dead_code(self, module: schema.Module, context: MutationContext) -> bool:
-        """Remove unused definitions and unreachable code."""
-        removed = False
-        
-        # Find statements after 'return' in functions
-        for stmt in module.body.statements:
-            if isinstance(stmt, schema.FunctionDef):
-                removed |= self._remove_unreachable(stmt.body)
-        
-        return removed
-    
-    def _remove_unreachable(self, block: schema.Block) -> bool:
-        """Remove statements after return/break/continue."""
-        new_stmts = []
-        found_terminator = False
-        removed = False
-        
-        for stmt in block.statements:
-            if found_terminator:
-                removed = True
-                continue  # Skip unreachable statements
-            
-            new_stmts.append(stmt)
-            
-            if isinstance(stmt, (schema.Return, schema.Break, schema.Continue)):
-                found_terminator = True
-        
-        if removed:
-            block.statements = new_stmts
-        
-        return removed
 
-class LoopUnrollingMutator(Mutator):
-    """
-    Unrolls loops with known iteration counts.
-    Trades code size for performance.
-    """
+
+class LoopUnrollingTransformer(NodeTransformer):
+    """Transformer for simple loop unrolling."""
     
     def __init__(self, max_unroll: int = 4):
         self.max_unroll = max_unroll
-    
+        self.changed = False
+        
+    def visit_For(self, node: schema.For) -> Any:
+        # Check if iter is range(N) where N is small constant
+        if isinstance(node.iter, schema.Call) and \
+           isinstance(node.iter.func, schema.Name) and \
+           node.iter.func.id == 'range':
+            
+            args = node.iter.args
+            start, stop, step = 0, None, 1
+            
+            # Parse range args
+            if len(args) == 1 and isinstance(args[0], schema.Constant) and isinstance(args[0].value, int):
+                stop = args[0].value
+            elif len(args) == 2 and isinstance(args[0], schema.Constant) and isinstance(args[1], schema.Constant):
+                start = args[0].value
+                stop = args[1].value
+            # Ignore step for now or complex cases
+            
+            if stop is not None:
+                count = stop - start
+                if 0 < count <= self.max_unroll:
+                    # Unroll!
+                    self.changed = True
+                    unrolled_stmts = []
+                    
+                    for i in range(start, stop):
+                        # Duplicate body
+                        # We need to replace user of loop var with constant `i`
+                        # This requires another transformer or sub-visitor
+                        body_copy = copy.deepcopy(node.body.statements)
+                        if isinstance(node.target, schema.Name):
+                            loop_var = node.target.id
+                            replacer = VarReplacer(loop_var, i)
+                            for stmt in body_copy:
+                                replacer.visit(stmt)
+                        
+                        unrolled_stmts.extend(body_copy)
+                        
+                    return unrolled_stmts
+                    
+        return self.generic_visit(node)
+
+
+class VarReplacer(NodeTransformer):
+    def __init__(self, name: str, value: int):
+        self.name = name
+        self.value = value
+        
+    def visit_Name(self, node: schema.Name) -> Any:
+        if node.id == self.name and node.ctx == "Load":
+            return schema.Constant(value=self.value, kind="int")
+        return node
+
+
+class LoopUnrollingMutator(Mutator):
     def mutate(self, ir: schema.Module) -> List[Tuple[schema.Module, str]]:
         variants = []
+        # Try different unroll levels? Or just one standard pass?
+        # The prompt implies trying different things.
         
-        # Find candidates for unrolling
-        for unroll_factor in [2, 4]:
-            if unroll_factor > self.max_unroll:
-                continue
-            
-            new_ir = copy.deepcopy(ir)
-            if self._try_unroll(new_ir, unroll_factor):
-                variants.append((new_ir, f"Advanced_LoopUnroll_{unroll_factor}x"))
-        
-        return variants
-    
-    def _try_unroll(self, module: schema.Module, factor: int) -> bool:
-        """Attempt to unroll loops by the given factor."""
-        # This is a simplified implementation
-        # A full implementation would:
-        # 1. Find range() loops with constant bounds
-        # 2. Check iteration count is divisible by factor  
-        # 3. Replicate loop body `factor` times with adjusted indices
-        # 4. Handle remainder iterations
-        
-        # For now, return False (not implemented)
-        return False
-
-class CommonSubexpressionEliminationMutator(Mutator):
-    """
-    Eliminates redundant computations by identifying common subexpressions.
-    """
-    
-    def mutate(self, ir: schema.Module) -> List[Tuple[schema.Module, str]]:
+        # Strategy 1: aggressive unrolling (up to 4)
         new_ir = copy.deepcopy(ir)
-        eliminated = self._eliminate_common_subexpressions(new_ir)
+        transformer = LoopUnrollingTransformer(max_unroll=4)
+        transformer.visit(new_ir)
         
-        if eliminated:
-            return [(new_ir, "Advanced_CSE")]
-        return []
-    
-    def _eliminate_common_subexpressions(self, module: schema.Module) -> bool:
-        """Find and eliminate common subexpressions."""
-        # This requires:
-        # 1. Build expression hash table
-        # 2. Find duplicate expressions
-        # 3. Introduce temporary variables
-        # 4. Replace duplicates with temp var references
-        
-        # Simplified implementation - return False for now
-        return False
+        if transformer.changed:
+            variants.append((new_ir, "Advanced_LoopUnrolling_4"))
+            
+        return variants

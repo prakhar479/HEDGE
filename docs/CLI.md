@@ -19,14 +19,16 @@ chmod +x hedge.py
 
 ### 1. Optimize Code
 ```bash
-# Basic optimization
-python3 hedge.py optimize fibonacci.py fibonacci_test.py
+# Basic optimization (Fast, no LLM)
+python3 hedge.py optimize fibonacci.py fibonacci_test.py --level basic
 
-# With all features
+# Standard optimization (Balanced, uses LLM)
+python3 hedge.py optimize fibonacci.py fibonacci_test.py --level standard
+
+# Deep optimization with visualization
 python3 hedge.py optimize fibonacci.py fibonacci_test.py \
+  --level advanced \
   --generations 10 \
-  --enable-semantic \
-  --enable-advanced \
   --visualize \
   --verbose
 
@@ -56,11 +58,14 @@ Optimize Python code using evolutionary strategies.
 - `tests` - Test file for validation (required)
 
 **Options:**
+- `--level {basic,standard,advanced,aggressive}` - Optimization level (default: standard)
+  - `basic`: Structural only (Fast, No LLM)
+  - `standard`: Structural + Syntactic (Balanced, LLM)
+  - `advanced`: Standard + Semantic (Deep, LLM StdLib)
+  - `aggressive`: All + External Libraries (Unsafe)
 - `--generations N` - Number of generations (default: 5)
 - `--population-size N` - Population size (default: 5)
 - `--timeout N` - Execution timeout in seconds (default: 20)
-- `--enable-semantic` - Enable LLM-based mutations
-- `--enable-advanced` - Enable advanced optimizations
 - `--llm-provider {openai,gemini}` - LLM provider (default: gemini)
 - `--llm-model MODEL` - Custom LLM model
 - `--no-context` - Disable context-aware mutations
@@ -141,9 +146,8 @@ python3 hedge.py analyze examples/fibonacci_optimized.py
 export GEMINI_API_KEY="your-api-key"
 
 python3 hedge.py optimize mycode.py mycode_test.py \
+  --level aggressive \
   --generations 20 \
-  --enable-semantic \
-  --enable-advanced \
   --llm-provider gemini \
   --save-ir \
   --visualize \

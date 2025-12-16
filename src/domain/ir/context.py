@@ -154,24 +154,42 @@ class MutationContext:
     def is_pure(self, node: schema.IRNode) -> bool:
         """
         Check if the node is side-effect free.
-        Impure: Calls, Await, Yield, Raise, Assert, Global/Nonlocal modifications, etc.
+        Impure: Calls (unless whitelisted), Await, Yield, Raise, Assert, 
+        Global/Nonlocal modifications, Assignments (NamedExpr), etc.
         """
+        SAFE_BUILTINS = {
+            "len", "range", "enumerate", "zip", 
+            "int", "float", "str", "bool", 
+            "abs", "min", "max", "sum", "divmod"
+        }
+        
         impure_types = (
-            schema.Call, schema.Await, schema.Yield, schema.YieldFrom,
+            schema.Await, schema.Yield, schema.YieldFrom,
             schema.Raise, schema.Assert, schema.Global, schema.Nonlocal,
-            schema.Delete
+            schema.Delete, schema.NamedExpr
         )
         
         is_pure = True
         
         def check(n):
             nonlocal is_pure
+            if not is_pure:
+                return
+                
             if isinstance(n, impure_types):
                 is_pure = False
-            # Also NamedExpr (walrus) is a side effect (assignment in expr)
-            if isinstance(n, schema.NamedExpr):
-                is_pure = False
-                
+                return
+
+            # handling Call nodes specifically
+            if isinstance(n, schema.Call):
+                # check if function is a safe builtin
+                if isinstance(n.func, schema.Name) and n.func.id in SAFE_BUILTINS:
+                    # check if arguments are pure (will be checked by visitor recursion)
+                    pass 
+                else:
+                    # Unknown call -> assumed impure
+                    is_pure = False
+                    
         self._traverse(node, check)
         return is_pure
 

@@ -45,10 +45,15 @@ except ImportError:
 from src.application.engine.evolution import EvolutionaryEngine
 from src.application.mutators.structural import StructuralMutator
 from src.application.mutators.semantic import SemanticMutator
+from src.application.mutators.syntactic import SyntacticReasoningMutator
+from src.application.mutators.external import ExternalLibraryMutator
 from src.application.mutators.advanced import (
     ConstantFoldingMutator,
     DeadCodeEliminationMutator
 )
+
+
+
 from src.infrastructure.execution.runner import GreenGymRunner
 from src.infrastructure.llm.client import create_llm_client
 from src.infrastructure.codegen.python_codegen import PythonCodeGenerator
@@ -59,14 +64,25 @@ from src.utils.logging_config import setup_logging, silence_noisy_libraries
 def print_banner():
     """Print HEDGE banner."""
     if RICH_AVAILABLE:
-        banner = """
+        from rich.align import Align
+        from rich.text import Text
+        
+        banner_text = Text("""
 ╦ ╦╔═╗╔╦╗╔═╗╔═╗
 ╠═╣║╣  ║║║ ╦║╣ 
 ╩ ╩╚═╝═╩╝╚═╝╚═╝
-Hierarchical Evolutionary Darwin-Green Engine
-IR-Only Optimization System | v2.0
-"""
-        console.print(Panel(banner, style="bold cyan", border_style="cyan"))
+""", style="bold magenta")
+        
+        title = Text("Hierarchical Evolutionary Darwin-Green Engine", style="bold white")
+        subtitle = Text("IR-Only Optimization System | v2.0", style="dim white")
+        
+        console.print(Panel(
+            Align.center(banner_text + Text("\n") + title + Text("\n") + subtitle),
+            style="bold magenta",
+            border_style="magenta",
+            subtitle="[dim]Google Deepmind [/dim]",
+            subtitle_align="right"
+        ))
     else:
         print("="*60)
         print(" HEDGE - Hierarchical Evolutionary Darwin-Green Engine")
@@ -81,21 +97,20 @@ def cmd_optimize(args):
         print("\nStarting Optimization\n")
     
     # Setup logging
+    # Default to INFO, DEBUG if verbose
     log_level = "DEBUG" if args.verbose else "INFO"
-    if args.experiment_dir:
-        log_file = Path(args.experiment_dir) / "hedge.log"
-    else:
-        log_file = None
     
+    # Configure logging
     if RICH_AVAILABLE:
+        # We need to configure root logger carefully to play nice with Progress
+        # But Progress.console usually handles it.
+        # Force INFO level
         logging.basicConfig(
             level=getattr(logging, log_level),
             format="%(message)s",
-            handlers=[RichHandler(console=console, rich_tracebacks=True)]
+            datefmt="[%X]",
+            handlers=[RichHandler(console=console, rich_tracebacks=True, show_path=False)]
         )
-        # Silence noisy third-party libraries when using verbose/DEBUG mode
-        if args.verbose:
-            silence_noisy_libraries()
     else:
         setup_logging(log_level, log_file, args.verbose)
     
@@ -129,56 +144,81 @@ def cmd_optimize(args):
     # Initialize components with progress
     if RICH_AVAILABLE:
         with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            console=console
+            SpinnerColumn(style="bold magenta"),
+            TextColumn("[bold blue]{task.description}"),
+            console=console,
+            transient=True 
         ) as progress:
-            task = progress.add_task("[cyan]Initializing components...", total=None)
+            task = progress.add_task("Initializing components...", total=None)
             
             runner = GreenGymRunner(timeout_seconds=args.timeout)
-            progress.update(task, description="[green]✓[/green] Green Gym runner initialized")
+            progress.update(task, description="Green Gym runner initialized")
             
             mutators = _setup_mutators(args, progress, task)
             progress.update(task, description="[green]✓[/green] All mutators initialized")
+            
+            # Create engine
+            engine = EvolutionaryEngine(
+                mutators=mutators,
+                runner=runner,
+                generations=args.generations,
+                population_size=args.population_size,
+                experiment_dir=experiment_dir,
+                save_ir_snapshots=args.save_ir
+            )
+            
+            # Start optimization task
+            # Using a new progress instance for the main loop to control layout
+            # We want this one to persist possibly, or be very visible
+            pass
+            
+        # Optimization Loop Progress
+        with Progress(
+            SpinnerColumn(style="bold yellow"),
+            TextColumn("[bold yellow]{task.description}"),
+            BarColumn(bar_width=None, style="yellow", complete_style="bold yellow"),
+            TextColumn("[bold cyan]Candidates: {task.fields[candidates]}"),
+            TimeElapsedColumn(),
+            console=console
+        ) as progress:
+            opt_task = progress.add_task("Optimizing...", total=None, candidates=0)
+            
+            candidates_count = 0
+            def on_progress(inc):
+                nonlocal candidates_count
+                candidates_count += inc
+                progress.update(opt_task, candidates=candidates_count)
+            
+            # Run optimization
+            logger.info(f"\nStarting optimization with {args.generations} generations")
+            logger.info(f"Mutators: {[m.__class__.__name__ for m in mutators]}\n")
+            
+            start_time = datetime.now()
+            solutions = engine.optimize(initial_code, test_code, progress_callback=on_progress)
+            
+            progress.update(opt_task, description="[bold green]Optimization Complete!", completed=100)
+            # progress.stop() handled by context manager
+
     else:
         print("Initializing components...")
         runner = GreenGymRunner(timeout_seconds=args.timeout)
         print("✓ Green Gym runner initialized")
         mutators = _setup_mutators(args)
         print("✓ All mutators initialized")
-    
-    # Create engine
-    engine = EvolutionaryEngine(
-        mutators=mutators,
-        runner=runner,
-        generations=args.generations,
-        population_size=args.population_size,
-        experiment_dir=experiment_dir,
-        save_ir_snapshots=args.save_ir
-    )
-    
-    # Run optimization
-    logger.info(f"\nStarting optimization with {args.generations} generations")
-    logger.info(f"Mutators: {[m.__class__.__name__ for m in mutators]}\n")
-    
-    start_time = datetime.now()
-    
-    if RICH_AVAILABLE:
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-            TimeElapsedColumn(),
-            console=console
-        ) as progress:
-            task = progress.add_task("[cyan]Optimizing...", total=args.generations)
-            
-            # Run optimization (would need to modify engine to support progress callbacks)
-            solutions = engine.optimize(initial_code, test_code)
-            
-            progress.update(task, completed=args.generations)
-    else:
+        
+        engine = EvolutionaryEngine(
+            mutators=mutators,
+            runner=runner,
+            generations=args.generations,
+            population_size=args.population_size,
+            experiment_dir=experiment_dir,
+            save_ir_snapshots=args.save_ir
+        )
+        
+        logger.info(f"\nStarting optimization with {args.generations} generations")
+        logger.info(f"Mutators: {[m.__class__.__name__ for m in mutators]}\n")
+        
+        start_time = datetime.now()
         solutions = engine.optimize(initial_code, test_code)
     
     end_time = datetime.now()
@@ -200,34 +240,65 @@ def cmd_optimize(args):
     return 0
 
 def _setup_mutators(args, progress=None, task=None):
-    """Set up mutators based on arguments."""
+    """Set up mutators based on optimization level."""
     mutators = []
     
-    # Structural mutator (always enabled)
+    # Level definitions
+    # basic: Structural + Advanced (No LLM)
+    # standard: Structural + Advanced + Syntactic (LLM)
+    # advanced: Structural + Advanced + Syntactic + Semantic (All StdLib)
+    # aggressive: All above + External (Unsafe/External Libs)
+    
+    use_llm = args.level in ['standard', 'advanced', 'aggressive']
+    
+    # 1. Structural (Always enabled)
     mutators.append(StructuralMutator(use_context=not args.no_context))
     if progress:
         progress.update(task, description="[green]✓[/green] Structural mutator enabled")
-    
-    # Semantic mutator
-    if args.enable_semantic:
+        
+    # 2. Advanced (Always enabled in our simplified model for performance)
+    mutators.extend([
+        ConstantFoldingMutator(),
+        DeadCodeEliminationMutator()
+    ])
+    if progress:
+        progress.update(task, description="[green]✓[/green] Advanced mutators enabled")
+
+    # Initialize LLM if needed
+    llm = None
+    if use_llm:
         api_key = os.getenv(f"{args.llm_provider.upper()}_API_KEY")
         if api_key:
             llm = create_llm_client(args.llm_provider, api_key, args.llm_model)
+        else:
+            logging.warning(f"API key not found for {args.llm_provider}. Reverting to basic level.")
+            use_llm = False
+
+    if use_llm:
+        # Standard: Syntactic
+        if args.level in ['standard', 'advanced', 'aggressive']:
+            mutators.append(SyntacticReasoningMutator(llm))
+            if progress:
+                progress.update(task, description="[green]✓[/green] Syntactic mutator enabled")
+        
+        # Advanced: Semantic
+        if args.level in ['advanced', 'aggressive']:
             mutators.append(SemanticMutator(llm))
             if progress:
-                progress.update(task, description=f"[green]✓[/green] Semantic mutator enabled ({args.llm_provider})")
-        else:
-            logging.warning(f"API key not found for {args.llm_provider}")
+                progress.update(task, description="[green]✓[/green] Semantic mutator enabled (StdLib)")
+                
+        # Aggressive: External
+        if args.level == 'aggressive':
+            mutators.append(ExternalLibraryMutator(llm))
+            if progress:
+                progress.update(task, description="[green]✓[/green] External mutator enabled")
     
-    # Advanced mutators
-    if args.enable_advanced:
-        mutators.extend([
-            ConstantFoldingMutator(),
-            DeadCodeEliminationMutator()
-        ])
+    if args.exclude_mutators:
+        excluded = [m.strip() for m in args.exclude_mutators.split(',')]
+        mutators = [m for m in mutators if m.__class__.__name__ not in excluded]
         if progress:
-            progress.update(task, description="[green]✓[/green] Advanced mutators enabled")
-    
+            progress.update(task, description=f"[green]✓[/green] Mutators filtered: {len(mutators)} active")
+            
     return mutators
 
 def _display_results(solutions, engine, duration, experiment_dir, args):
@@ -398,6 +469,44 @@ def cmd_visualize(args):
     
     return 0
 
+def cmd_list_mutators(args):
+    """List available mutators."""
+    print_banner()
+    
+    if RICH_AVAILABLE:
+        table = Table(title="\nAvailable Mutators", show_header=True, header_style="bold cyan")
+        table.add_column("Category", style="cyan")
+        table.add_column("Mutator", style="green")
+        table.add_column("Level via --level", style="yellow")
+        table.add_column("Description", style="dim")
+        
+        # Structural
+        table.add_row("Structural", "StructuralMutator", "All", "AST-based transformations (Reordering, Strength Reduction)")
+        table.add_row("Advanced", "ConstantFoldingMutator", "All", "Evaluates constant expressions")
+        table.add_row("Advanced", "DeadCodeEliminationMutator", "All", "Removes unreachable code")
+        
+        # Syntactic
+        table.add_row("Syntactic", "SyntacticReasoningMutator", "standard+", "LLM-based idiom replacement (e.g. loops to comprehensions)")
+        
+        # Semantic
+        table.add_row("Semantic", "SemanticMutator", "advanced+", "LLM-based StdLib optimization")
+        
+        # External
+        table.add_row("External", "ExternalLibraryMutator", "aggressive", "LLM-based External Library optimization (pandas, numpy)")
+        
+        console.print(table)
+        console.print("\n[bold]Usage:[/bold] Use [cyan]--level[/cyan] to enable groups, or [cyan]--exclude-mutators[/cyan] to fine-tune.")
+    else:
+        print("\nAvailable Mutators:")
+        print("  - StructuralMutator (All): AST-based transformations")
+        print("  - ConstantFoldingMutator (All): Basic optimization")
+        print("  - DeadCodeEliminationMutator (All): Basic optimization")
+        print("  - SyntacticReasoningMutator (standard+): LLM-based idioms")
+        print("  - SemanticMutator (advanced+): LLM-based StdLib")
+        print("  - ExternalLibraryMutator (aggressive): External libraries")
+
+    return 0
+
 def main():
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
@@ -406,30 +515,30 @@ def main():
         epilog="""
 Examples:
   # Basic optimization
-  hedge optimize fibonacci.py fibonacci_test.py
+  hedge optimize fibonacci.py fibonacci_test.py --level basic
   
-  # With LLM and visualizations
-  hedge optimize fibonacci.py fibonacci_test.py --enable-semantic --visualize
+  # List strategies
+  hedge list-mutators
   
   # Analyze code complexity
   hedge analyze mycode.py
-  
-  # Generate visualizations from existing results
-  hedge visualize experiments/run_20231204_123456
         """
     )
     
     subparsers = parser.add_subparsers(dest='command', help='Available commands')
+
+    # List mutators command
+    subparsers.add_parser('list-mutators', help='List all available optimization mutators')
     
     # Optimize command
     optimize_parser = subparsers.add_parser('optimize', help='Optimize Python code')
     optimize_parser.add_argument('target', type=str, help='Target Python file to optimize')
     optimize_parser.add_argument('tests', type=str, help='Test file')
+    optimize_parser.add_argument('--level', type=str, default='standard', choices=['basic', 'standard', 'advanced', 'aggressive'], help='Optimization level')
     optimize_parser.add_argument('--generations', type=int, default=5, help='Number of generations (default: 5)')
     optimize_parser.add_argument('--population-size', type=int, default=5, help='Population size (default: 5)')
     optimize_parser.add_argument('--timeout', type=int, default=20, help='Timeout for code execution (default: 20s)')
-    optimize_parser.add_argument('--enable-semantic', action='store_true', help='Enable LLM-based semantic mutations')
-    optimize_parser.add_argument('--enable-advanced', action='store_true', help='Enable advanced optimizations')
+    optimize_parser.add_argument('--exclude-mutators', type=str, default=None, help='Comma-separated list of mutators to exclude (e.g. ExternalLibraryMutator)')
     optimize_parser.add_argument('--llm-provider', type=str, default='gemini', choices=['openai', 'gemini'], help='LLM provider')
     optimize_parser.add_argument('--llm-model', type=str, default=None, help='LLM model (optional)')
     optimize_parser.add_argument('--no-context', action='store_true', help='Disable context-aware mutations')
@@ -462,6 +571,8 @@ Examples:
         return cmd_analyze(args)
     elif args.command == 'visualize':
         return cmd_visualize(args)
+    elif args.command == 'list-mutators':
+        return cmd_list_mutators(args)
     
     return 0
 

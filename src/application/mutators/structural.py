@@ -11,6 +11,8 @@ from typing import List, Tuple
 from src.domain.interfaces import Mutator
 from src.domain.ir import schema
 from src.domain.ir.context import MutationContext
+from src.domain.ir.utils import NodeTransformer
+from typing import List, Tuple, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -81,15 +83,38 @@ class StructuralMutator(Mutator):
         except Exception as e:
             logger.error(f"AugAssign mutation failed: {e}")
 
-        # Strategy 4: Range Optimization
+        # Strategy 5: Strength Reduction
         try:
-            variant = self._mutate_range(ir)
+            variant = self._mutate_strength_reduction(ir)
             if variant:
-                variants.append((variant, "Structural_Range"))
+                variants.append((variant, "Structural_StrengthReduction"))
         except Exception as e:
-            logger.error(f"Range mutation failed: {e}")
+            logger.error(f"StrengthReduction mutation failed: {e}")
+
+        # Strategy 6: Fast Membership (List -> Set)
+        try:
+            variant = self._mutate_fast_membership(ir)
+            if variant:
+                variants.append((variant, "Structural_FastMembership"))
+        except Exception as e:
+            logger.error(f"FastMembership mutation failed: {e}")
             
         return variants
+
+    def _mutate_strength_reduction(self, ir: schema.Module) -> Optional[schema.Module]:
+        """Replace expensive operations with cheaper ones (e.g. x**2 -> x*x)."""
+        new_ir = copy.deepcopy(ir)
+        transformer = StrengthReductionTransformer()
+        transformer.visit(new_ir)
+        return new_ir if transformer.changed else None
+
+    def _mutate_fast_membership(self, ir: schema.Module) -> Optional[schema.Module]:
+        """Replace x in [a,b] with x in {a,b} for constant lists."""
+        new_ir = copy.deepcopy(ir)
+        transformer = FastMembershipTransformer()
+        transformer.visit(new_ir)
+        return new_ir if transformer.changed else None
+
     
     def _mutate_reorder(self, ir: schema.Module, context=None) -> schema.Module:
         """
@@ -308,3 +333,82 @@ class StructuralMutator(Mutator):
             binops.extend(self._find_binops(node.body))
         
         return binops
+        
+
+class StrengthReductionTransformer(NodeTransformer):
+    """
+    Performs strength reduction: replacing expensive operations with cheaper ones.
+    """
+    def __init__(self):
+        self.changed = False
+
+    def visit_BinaryOp(self, node: schema.BinaryOp) -> schema.Expression:
+        node = self.generic_visit(node)
+        
+        # Power to Multiplication: x ** 2 -> x * x
+        if node.op == '**' and isinstance(node.right, schema.Constant) and node.right.value == 2:
+            self.changed = True
+            return schema.BinaryOp(
+                left=node.left,
+                op='*',
+                right=node.left
+            )
+            
+        # Division by 2 to Multiplication by 0.5: x / 2 -> x * 0.5
+        if node.op == '/' and isinstance(node.right, schema.Constant) and node.right.value == 2:
+            self.changed = True
+            return schema.BinaryOp(
+                left=node.left,
+                op='*',
+                right=schema.Constant(value=0.5, kind="float")
+            )
+            
+        return node
+    
+    def visit_If(self, node: schema.If) -> schema.Statement:
+        node = self.generic_visit(node)
+        
+        # len(seq) > 0 -> seq
+        if isinstance(node.test, schema.Compare) and len(node.test.ops) == 1:
+            op = node.test.ops[0]
+            left = node.test.left
+            right = node.test.comparators[0]
+            
+            # Check for len(x) > 0
+            if op == '>' and isinstance(right, schema.Constant) and right.value == 0:
+                if isinstance(left, schema.Call) and isinstance(left.func, schema.Name) and left.func.id == 'len':
+                    if len(left.args) == 1:
+                        self.changed = True
+                        node.test = left.args[0]
+                        
+        return node
+
+class FastMembershipTransformer(NodeTransformer):
+    """
+    Optimizes membership tests.
+    x in [a, b] -> x in {a, b} (O(N) -> O(1))
+    """
+    def __init__(self):
+        self.changed = False
+        
+    def visit_Compare(self, node: schema.Compare) -> schema.Expression:
+        node = self.generic_visit(node)
+        
+        if len(node.ops) != 1 or len(node.comparators) != 1:
+            return node
+            
+        op = node.ops[0]
+        comparator = node.comparators[0]
+        
+        if op in ('in', 'not in') and isinstance(comparator, schema.ListExpr):
+            # Convert ListExpr to SetExpr
+            # Only if all elements are hashable constants
+            # For safety, let's just check if they are Constants
+            all_const = all(isinstance(elt, schema.Constant) for elt in comparator.elts)
+            
+            if all_const:
+                self.changed = True
+                node.comparators[0] = schema.SetExpr(elts=comparator.elts)
+                
+        return node
+
