@@ -4,7 +4,9 @@ This enables intelligent, safe mutations that respect program semantics.
 """
 from typing import Dict, Set, List, Optional
 from dataclasses import dataclass, field
+from src.domain.ir import schema
 from src.domain.ir.schema import Module, FunctionDef, Name
+
 
 @dataclass
 class SymbolInfo:
@@ -120,34 +122,77 @@ class MutationContext:
         # more sophisticated data flow analysis
         pass
     
-    def get_defined_vars(self, node) -> Set[str]:
-        """Get all variables defined by this node."""
+    def get_defined_vars(self, node: schema.IRNode) -> Set[str]:
+        """
+        Get all variables defined by this node.
+        Includes assignments, function/class definitions, imports, etc.
+        """
         defined = set()
-        if hasattr(node, 'targets'):  # Assign
-            for target in node.targets:
-                if isinstance(target, Name):
-                    defined.add(target.id)
-        elif hasattr(node, 'target'):  # AugAssign, For
-            if isinstance(node.target, Name):
-                defined.add(node.target.id)
+        
+        # 1. Specialized definitions (stmts that define names directly)
+        if isinstance(node, (schema.FunctionDef, schema.AsyncFunctionDef, schema.ClassDef)):
+            defined.add(node.name)
+        elif isinstance(node, (schema.Import, schema.ImportFrom)):
+            for alias in node.names:
+                defined.add(alias.asname if alias.asname else alias.name)
+        
+        # 2. General definitions (Name context=Store)
+        # We traverse the node to find all writes (Store)
+        self._collect_names(node, defined, ctx_filter="Store")
+        
+        # 3. Deletions (Name context=Del) treated as structural updates
+        self._collect_names(node, defined, ctx_filter="Del")
+        
         return defined
     
-    def get_used_vars(self, node) -> Set[str]:
-        """Get all variables used by this node."""
+    def get_used_vars(self, node: schema.IRNode) -> Set[str]:
+        """Get all variables used (read) by this node."""
         used = set()
         self._collect_names(node, used, ctx_filter="Load")
         return used
     
+    def is_pure(self, node: schema.IRNode) -> bool:
+        """
+        Check if the node is side-effect free.
+        Impure: Calls, Await, Yield, Raise, Assert, Global/Nonlocal modifications, etc.
+        """
+        impure_types = (
+            schema.Call, schema.Await, schema.Yield, schema.YieldFrom,
+            schema.Raise, schema.Assert, schema.Global, schema.Nonlocal,
+            schema.Delete
+        )
+        
+        is_pure = True
+        
+        def check(n):
+            nonlocal is_pure
+            if isinstance(n, impure_types):
+                is_pure = False
+            # Also NamedExpr (walrus) is a side effect (assignment in expr)
+            if isinstance(n, schema.NamedExpr):
+                is_pure = False
+                
+        self._traverse(node, check)
+        return is_pure
+
     def _collect_names(self, node, result: Set[str], ctx_filter: str = None):
         """Recursively collect all Name nodes."""
-        if isinstance(node, Name):
-            if ctx_filter is None or node.ctx == ctx_filter:
-                result.add(node.id)
-        
+        def visitor(n):
+            if isinstance(n, schema.Name):
+                if ctx_filter is None or n.ctx == ctx_filter:
+                    result.add(n.id)
+                    
+        self._traverse(node, visitor)
+
+    def _traverse(self, node, callback):
+        """Generic traversal."""
+        callback(node)
         if hasattr(node, '__dict__'):
             for value in node.__dict__.values():
                 if isinstance(value, list):
                     for item in value:
-                        self._collect_names(item, result, ctx_filter)
-                elif hasattr(value, '__dict__'):
-                    self._collect_names(value, result, ctx_filter)
+                        if isinstance(item, schema.IRNode):
+                            self._traverse(item, callback)
+                elif isinstance(value, schema.IRNode):
+                    self._traverse(value, callback)
+

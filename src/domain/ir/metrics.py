@@ -4,8 +4,8 @@ HEDGE - Metrics and Instrumentation
 Provides detailed metrics for IR complexity, mutation effectiveness,
 and performance profiling.
 """
-from typing import Dict, Any
-from dataclasses import dataclass
+from typing import Dict, Any, List
+from dataclasses import dataclass, field
 from src.domain.ir.schema import Module, Expression, Statement
 
 @dataclass
@@ -104,6 +104,24 @@ class MutationStatistics:
     failed_executions: int = 0
     pareto_improvements: int = 0
     cache_hits: int = 0
+    
+    # Per-mutator statistics: strategy_name -> {total, valid, improved}
+    mutator_stats: Dict[str, Dict[str, int]] = field(default_factory=dict)
+
+    def record_attempt(self, strategy: str):
+        if strategy not in self.mutator_stats:
+            self.mutator_stats[strategy] = {"total": 0, "valid": 0, "improved": 0}
+        self.mutator_stats[strategy]["total"] += 1
+        self.total_mutations += 1
+
+    def record_success(self, strategy: str):
+        self.mutator_stats[strategy]["valid"] += 1
+        self.successful_mutations += 1
+        
+    def record_improvement(self, strategy: str):
+        self.mutator_stats[strategy]["improved"] += 1
+        self.pareto_improvements += 1
+
     
     @property
     def success_rate(self) -> float:

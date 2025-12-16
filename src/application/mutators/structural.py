@@ -66,7 +66,7 @@ class StructuralMutator(Mutator):
         
         # Strategy 2: Swap binary operands (commutative ops)
         try:
-            variant = self._mutate_swap_operands(ir)
+            variant = self._mutate_swap_operands(ir, context)
             if variant:
                 variants.append((variant, "Structural_SwapOperands"))
                 logger.debug("Successfully created swap variant")
@@ -128,11 +128,18 @@ class StructuralMutator(Mutator):
             
             # If we have context, check if swap is safe
             if context:
-                # Simplified check - in production would use full dependency graph
-                stmt1_defs = context.get_defined_vars(block.statements[idx1])
-                stmt1_uses = context.get_used_vars(block.statements[idx1])
-                stmt2_defs = context.get_defined_vars(block.statements[idx2])
-                stmt2_uses = context.get_used_vars(block.statements[idx2])
+                stmt1 = block.statements[idx1]
+                stmt2 = block.statements[idx2]
+                
+                # Check 1: Purity (avoid reordering side effects)
+                if not context.is_pure(stmt1) or not context.is_pure(stmt2):
+                    continue
+
+                # Check 2: Data Dependencies
+                stmt1_defs = context.get_defined_vars(stmt1)
+                stmt1_uses = context.get_used_vars(stmt1)
+                stmt2_defs = context.get_defined_vars(stmt2)
+                stmt2_uses = context.get_used_vars(stmt2)
                 
                 # Check for conflicts
                 if stmt1_defs & stmt2_uses or stmt2_defs & stmt1_uses or stmt1_defs & stmt2_defs:
@@ -144,16 +151,30 @@ class StructuralMutator(Mutator):
         
         return None
     
-    def _mutate_swap_operands(self, ir: schema.Module) -> schema.Module:
+    def _mutate_swap_operands(self, ir: schema.Module, context=None) -> schema.Module:
         """Swap operands in commutative binary operations."""
         new_ir = copy.deepcopy(ir)
         
+        # Build local context if not provided (though usually it is)
+        if not context and self.use_context:
+            try:
+                context = MutationContext(new_ir)
+            except:
+                 pass
+
         # Find all binary operations
         binops = self._find_binops(new_ir)
         
         # Filter commutative operations
-        commutative = ['+', '*', '==', '!=', 'and', 'or']
-        candidates = [op for op in binops if op.op in commutative]
+        commutative = ['+', '*', '==', '!=', 'and', 'or', '^', '&', '|']
+        candidates = []
+        for op in binops:
+            if op.op in commutative:
+                # Safety check: Operands must be pure
+                if context:
+                    if not context.is_pure(op.left) or not context.is_pure(op.right):
+                        continue
+                candidates.append(op)
         
         if not candidates:
             return None

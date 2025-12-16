@@ -93,7 +93,7 @@ def run_benchmark(problem_dir: Path,
     experiment_dir.mkdir(parents=True, exist_ok=True)
 
     # Initialize components
-    runner = GreenGymRunner(timeout_seconds=args.timeout)
+    runner = GreenGymRunner(timeout_seconds=args.timeout, samples=args.samples)
     mutators = setup_mutators(args)
     
     engine = EvolutionaryEngine(
@@ -219,6 +219,7 @@ if __name__ == "__main__":
     parser.add_argument("--generations", "-g", type=int, default=5, help="Number of generations")
     parser.add_argument("--population-size", "-p", type=int, default=5, help="Population size")
     parser.add_argument("--timeout", type=int, default=20, help="Execution timeout (s)")
+    parser.add_argument("--samples", type=int, default=3, help="Number of samples per evaluation")
     
     # Mutator arguments
     parser.add_argument('--enable-semantic', action='store_true', help='Enable LLM-based semantic mutations')

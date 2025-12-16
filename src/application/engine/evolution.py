@@ -272,18 +272,26 @@ class EvolutionaryEngine:
             # For now, the probabilistic selection handles "slightly worse" ones.
             
             # Generate variants
+            # Generate variants
             for parent in selected_parents:
-                for mutator in self.mutators:
+                # Adaptive selection of mutators
+                active_mutators = self._select_mutators()
+                
+                for mutator in active_mutators:
                     try:
                         variants = mutator.mutate(parent.ir)
                         
                         for variant_ir, strategy_name in variants:
+                            self.statistics.record_attempt(strategy_name)
+                            
                             # Validate variant
                             val_result = self.validator.validate(variant_ir)
                             if val_result.valid:
+                                self.statistics.record_success(strategy_name)
                                 next_gen_candidates.append((variant_ir, parent, strategy_name))
                             else:
                                 logger.warning(f"Variant rejected: {val_result.errors}")
+                                self.statistics.failed_validations += 1
                     except Exception as e:
                         logger.error(f"Mutator {mutator.__class__.__name__} failed: {e}")
             
@@ -312,9 +320,11 @@ class EvolutionaryEngine:
                     
                     added = self.archive.update(new_sol)
                     if added:
+                        self.statistics.record_improvement(mutator_name)
                         logger.info(f"New Pareto solution! [{mutator_name}] {metrics}")
             
             logger.info(f"Generation {gen} complete. Archive size: {len(self.archive.solutions)}")
+            logger.debug(f"Process stats: {self.statistics.to_dict()}")
         
         return self.archive.solutions
 
@@ -330,3 +340,61 @@ class EvolutionaryEngine:
             IRSerializer.save(solution.ir, filepath)
         except Exception as e:
             logger.error(f"Failed to save IR snapshot: {e}")
+
+    def _select_mutators(self) -> List[Mutator]:
+        """
+        Select mutators to apply based on past performance.
+        Uses an adaptive schedule where mutators with higher improvement
+        rates have a higher probability of being selected.
+        """
+        import random
+        
+        if not self.statistics.mutator_stats:
+            # No data yet, return all
+            return self.mutators
+            
+        scores = {}
+        for m in self.mutators:
+            # Aggregate stats by matching prefix
+            # e.g. StructuralMutator -> "Structural"
+            name_prefix = m.__class__.__name__.replace("Mutator", "")
+            if name_prefix == "Structural": 
+                # Structural produces "Structural_XXX"
+                pass
+            
+            total_improved = 0
+            total_attempts = 0
+            
+            for strat, data in self.statistics.mutator_stats.items():
+                if strat.startswith(name_prefix):
+                    total_improved += data["improved"]
+                    total_attempts += data["total"]
+            
+            rate = 0.0
+            if total_attempts > 0:
+                rate = total_improved / total_attempts
+            
+            # Base score + rate (ensure non-zero)
+            scores[m] = rate + 0.01
+
+        if not scores:
+            return self.mutators
+
+        # Calculate acceptance probability
+        # Normalize relative to best performer
+        max_score = max(scores.values())
+        
+        selected = []
+        for m in self.mutators:
+            score = scores[m]
+            # Prob formula: Min 20% + 80% * relative_performance
+            prob = 0.2 + 0.8 * (score / max_score)
+            
+            if random.random() < prob:
+                selected.append(m)
+        
+        # Ensure at least one mutator is selected
+        if not selected:
+            selected = [random.choice(self.mutators)]
+            
+        return selected
