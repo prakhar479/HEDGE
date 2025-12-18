@@ -34,18 +34,37 @@ def weighted_mean_absolute_... |
 ### Run a Single Problem
 
 ```bash
-# Example: Run EvoEval_difficult_4
-python main.py --target evoeval_benchmark/EvoEval_difficult_4/target.py \
-               --tests evoeval_benchmark/EvoEval_difficult_4/test_target.py \
-               --generations 5 \
-               --layers L1 L2 \
-               --visualize
+# Example: Run EvoEval_difficult_4 with layered system
+python hedge.py optimize evoeval_benchmark/EvoEval_difficult_4/target.py \
+                         evoeval_benchmark/EvoEval_difficult_4/test_target.py \
+                         --level standard \
+                         --generations 5 \
+                         --visualize
+
+# Advanced optimization with semantic layer (requires LLM API key)
+export GEMINI_API_KEY="your-api-key"
+python hedge.py optimize evoeval_benchmark/EvoEval_difficult_4/target.py \
+                         evoeval_benchmark/EvoEval_difficult_4/test_target.py \
+                         --level advanced \
+                         --generations 10 \
+                         --visualize
+
+# Custom layer selection
+python hedge.py optimize evoeval_benchmark/EvoEval_difficult_4/target.py \
+                         evoeval_benchmark/EvoEval_difficult_4/test_target.py \
+                         --layers algorithmic,syntactic \
+                         --generations 5
 ```
 
 ### Run All Problems
 
 ```bash
-python run_evoeval_benchmarks.py
+# NOTE: The batch benchmark script needs updating for the layered system
+# For now, run individual problems or use legacy mode:
+python run_evoeval_benchmarks.py  # (needs updating - uses legacy system)
+
+# Or run with legacy mode:
+python hedge.py optimize <target> <tests> --legacy-mode --level advanced
 ```
 
 ## Structure
@@ -57,11 +76,14 @@ Each problem directory contains:
 
 ## Expected Optimizations
 
-HEDGE will attempt to optimize these implementations through:
-- **L1 (Intent)**: Algorithmic improvements (e.g., O(n²) → O(n log n))
-- **L2 (Syntax)**: Code-level optimizations (list comprehensions, library usage, etc.)
+HEDGE will attempt to optimize these implementations through its hierarchical layers:
 
-Results will show Pareto-optimal solutions balancing energy consumption and execution time.
+- **🧠 Semantic Layer**: Algorithm intent optimization (O(n²) → O(n log n), better algorithms)
+- **📊 Algorithmic Layer**: Data structure improvements (List → Set for membership, complexity reduction)
+- **🐍 Syntactic Layer**: Python idiom optimization (comprehensions, built-ins, patterns)
+- **⚡ Micro Layer**: Low-level optimizations (constant folding, dead code elimination)
+
+Results will show Pareto-optimal solutions balancing energy consumption and execution time, with detailed layer contribution analysis.
 
 ## Generated
 

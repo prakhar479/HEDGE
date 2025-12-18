@@ -17,7 +17,7 @@ import logging
 import uuid
 import hashlib
 import time
-from typing import List, Dict, Tuple, Optional
+from typing import List, Dict, Tuple, Optional, Set
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -28,6 +28,8 @@ from src.domain.ir.metrics import IRMetricsCollector, MutationStatistics
 from src.domain.ir.serialization import IRSerializer, IRDiffer
 from src.infrastructure.parsing.python_parser import PythonParser
 from src.infrastructure.codegen.python_codegen import PythonCodeGenerator
+from src.application.engine.crossover import CrossoverManager
+from src.application.mutators.base import MutationOrchestrator, MutationLayer
 
 logger = logging.getLogger(__name__)
 
@@ -42,10 +44,11 @@ class Solution:
     generation: int
 
 class ParetoArchive:
-    """Maintains a set of non-dominated solutions."""
+    """Maintains a set of non-dominated solutions with diversity preservation."""
     
-    def __init__(self):
+    def __init__(self, max_size: int = 50):
         self.solutions: List[Solution] = []
+        self.max_size = max_size
     
     def _dominates(self, sol_a: Solution, sol_b: Solution) -> bool:
         """Check if sol_a dominates sol_b in the Pareto sense."""
@@ -60,8 +63,42 @@ class ParetoArchive:
         
         return better_in_one and no_worse
     
+    def _crowding_distance(self, solutions: List[Solution]) -> Dict[str, float]:
+        """Calculate crowding distance for diversity preservation."""
+        if len(solutions) <= 2:
+            return {sol.variant_id: float('inf') for sol in solutions}
+        
+        distances = {sol.variant_id: 0.0 for sol in solutions}
+        
+        # Sort by each objective and calculate distances
+        objectives = ["energy_joules", "duration_seconds"]
+        
+        for obj in objectives:
+            # Sort solutions by this objective
+            sorted_sols = sorted(solutions, key=lambda s: s.metrics.get(obj, float('inf')))
+            
+            # Boundary solutions get infinite distance
+            if len(sorted_sols) > 0:
+                distances[sorted_sols[0].variant_id] = float('inf')
+                distances[sorted_sols[-1].variant_id] = float('inf')
+            
+            # Calculate range for normalization
+            obj_min = sorted_sols[0].metrics.get(obj, 0)
+            obj_max = sorted_sols[-1].metrics.get(obj, 1)
+            obj_range = obj_max - obj_min
+            
+            if obj_range > 0:
+                # Calculate distances for intermediate solutions
+                for i in range(1, len(sorted_sols) - 1):
+                    if distances[sorted_sols[i].variant_id] != float('inf'):
+                        prev_val = sorted_sols[i-1].metrics.get(obj, 0)
+                        next_val = sorted_sols[i+1].metrics.get(obj, 0)
+                        distances[sorted_sols[i].variant_id] += (next_val - prev_val) / obj_range
+        
+        return distances
+    
     def update(self, new_solution: Solution) -> bool:
-        """Add solution if it's non-dominated."""
+        """Add solution if it's non-dominated, with diversity preservation."""
         # Check if any existing solution dominates the new one
         for sol in self.solutions:
             if self._dominates(sol, new_solution):
@@ -71,7 +108,27 @@ class ParetoArchive:
         self.solutions = [s for s in self.solutions if not self._dominates(new_solution, s)]
         
         self.solutions.append(new_solution)
+        
+        # Apply diversity preservation if archive is too large
+        if len(self.solutions) > self.max_size:
+            self._maintain_diversity()
+        
         return True
+    
+    def _maintain_diversity(self):
+        """Maintain diversity by removing crowded solutions."""
+        if len(self.solutions) <= self.max_size:
+            return
+        
+        # Calculate crowding distances
+        distances = self._crowding_distance(self.solutions)
+        
+        # Sort by crowding distance (ascending) and remove most crowded
+        sorted_solutions = sorted(self.solutions, key=lambda s: distances[s.variant_id])
+        
+        # Keep the least crowded solutions
+        num_to_remove = len(self.solutions) - self.max_size
+        self.solutions = sorted_solutions[num_to_remove:]
 
 class EvolutionaryEngine:
     """
@@ -118,6 +175,11 @@ class EvolutionaryEngine:
         self.archive = ParetoArchive()
         self.cache: Dict[str, Dict[str, float]] = {}
         self.statistics = MutationStatistics()
+        self.crossover_manager = CrossoverManager()
+        self.mutation_orchestrator = MutationOrchestrator()
+        
+        # Register mutators with orchestrator
+        self._register_layered_mutators()
         
         # Setup experiment directory
         if self.experiment_dir:
@@ -276,8 +338,7 @@ class EvolutionaryEngine:
             # Add diversity: also include some random parents that might have low fitness but are unique?
             # For now, the probabilistic selection handles "slightly worse" ones.
             
-            # Generate variants
-            # Generate variants
+            # Generate variants through mutation
             for parent in selected_parents:
                 # Adaptive selection of mutators
                 active_mutators = self._select_mutators()
@@ -299,6 +360,31 @@ class EvolutionaryEngine:
                                 self.statistics.failed_validations += 1
                     except Exception as e:
                         logger.error(f"Mutator {mutator.__class__.__name__} failed: {e}")
+            
+            # Generate variants through crossover (if we have multiple parents)
+            if len(selected_parents) >= 2:
+                num_crossovers = min(len(selected_parents) // 2, 3)  # Limit crossover attempts
+                
+                for _ in range(num_crossovers):
+                    parent1, parent2 = random.sample(selected_parents, 2)
+                    
+                    try:
+                        offspring = self.crossover_manager.perform_crossover(parent1.ir, parent2.ir)
+                        
+                        for child_ir in offspring:
+                            self.statistics.record_attempt("Crossover")
+                            
+                            # Validate offspring
+                            val_result = self.validator.validate(child_ir)
+                            if val_result.valid:
+                                self.statistics.record_success("Crossover")
+                                # Use parent1 as the "parent" for tracking
+                                next_gen_candidates.append((child_ir, parent1, "Crossover"))
+                            else:
+                                logger.warning(f"Crossover offspring rejected: {val_result.errors}")
+                                self.statistics.failed_validations += 1
+                    except Exception as e:
+                        logger.error(f"Crossover failed: {e}")
             
             if not next_gen_candidates:
                 logger.info("No valid variants produced. Stopping.")
@@ -410,3 +496,20 @@ class EvolutionaryEngine:
             selected = [random.choice(self.mutators)]
             
         return selected
+    
+    def _register_layered_mutators(self):
+        """Register layered mutators with the orchestrator."""
+        # This will be called from the CLI setup to register the appropriate mutators
+        # based on the selected optimization level and enabled layers
+        pass
+    
+    def set_enabled_layers(self, enabled_layers: Set[MutationLayer]):
+        """Set which mutation layers are enabled for this optimization run."""
+        self.enabled_layers = enabled_layers
+    
+    def apply_layered_mutations(self, ir: Module) -> List[Tuple[Module, str]]:
+        """Apply mutations using the layered orchestrator."""
+        if hasattr(self, 'enabled_layers'):
+            return self.mutation_orchestrator.apply_layered_mutations(ir, self.enabled_layers)
+        else:
+            return self.mutation_orchestrator.apply_layered_mutations(ir)

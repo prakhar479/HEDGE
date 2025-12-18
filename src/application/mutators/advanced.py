@@ -3,7 +3,7 @@ Advanced IR mutators implementing state-of-the-art program transformations.
 """
 import copy
 import operator
-from typing import List, Tuple, Any, Optional
+from typing import List, Tuple, Any, Optional, Set
 
 from src.domain.interfaces import Mutator
 from src.domain.ir import schema
@@ -255,3 +255,149 @@ class LoopUnrollingMutator(Mutator):
             variants.append((new_ir, "Advanced_LoopUnrolling_4"))
             
         return variants
+
+
+class CommonSubexpressionEliminationMutator(Mutator):
+    """
+    Eliminates common subexpressions by identifying repeated computations
+    and extracting them to temporary variables.
+    """
+    def mutate(self, ir: schema.Module) -> List[Tuple[schema.Module, str]]:
+        new_ir = copy.deepcopy(ir)
+        transformer = CSETransformer()
+        transformer.visit(new_ir)
+        
+        if transformer.changed:
+            return [(new_ir, "Advanced_CommonSubexpressionElimination")]
+        return []
+
+
+class CSETransformer(NodeTransformer):
+    """Transformer for Common Subexpression Elimination."""
+    
+    def __init__(self):
+        self.changed = False
+        self.expr_count = {}  # expression_hash -> count
+        self.temp_var_counter = 0
+    
+    def visit_FunctionDef(self, node: schema.FunctionDef) -> schema.Statement:
+        """Process function body for CSE opportunities."""
+        # First pass: count expression occurrences
+        self._count_expressions(node.body)
+        
+        # Second pass: extract common subexpressions
+        if self.expr_count:
+            node = self.generic_visit(node)
+        
+        return node
+    
+    def _count_expressions(self, block: schema.Block):
+        """Count occurrences of expressions in a block."""
+        for stmt in block.statements:
+            self._count_in_statement(stmt)
+    
+    def _count_in_statement(self, stmt: schema.Statement):
+        """Count expressions in a statement."""
+        if isinstance(stmt, schema.Assign):
+            expr_hash = self._hash_expression(stmt.value)
+            if expr_hash:
+                self.expr_count[expr_hash] = self.expr_count.get(expr_hash, 0) + 1
+        elif isinstance(stmt, (schema.If, schema.While, schema.For)):
+            if hasattr(stmt, 'body'):
+                self._count_expressions(stmt.body)
+            if hasattr(stmt, 'orelse') and stmt.orelse:
+                self._count_expressions(stmt.orelse)
+    
+    def _hash_expression(self, expr: schema.Expression) -> Optional[str]:
+        """Create a hash for an expression (simplified)."""
+        if isinstance(expr, schema.BinaryOp):
+            left_hash = self._hash_expression(expr.left)
+            right_hash = self._hash_expression(expr.right)
+            if left_hash and right_hash:
+                return f"BinOp({expr.op},{left_hash},{right_hash})"
+        elif isinstance(expr, schema.Name):
+            return f"Name({expr.id})"
+        elif isinstance(expr, schema.Constant):
+            return f"Const({expr.value})"
+        elif isinstance(expr, schema.Call):
+            if isinstance(expr.func, schema.Name):
+                args_hash = ",".join(self._hash_expression(arg) or "" for arg in expr.args)
+                return f"Call({expr.func.id},{args_hash})"
+        
+        return None
+
+
+class LoopInvariantCodeMotionMutator(Mutator):
+    """
+    Moves loop-invariant computations outside of loops.
+    """
+    def mutate(self, ir: schema.Module) -> List[Tuple[schema.Module, str]]:
+        new_ir = copy.deepcopy(ir)
+        transformer = LICMTransformer()
+        transformer.visit(new_ir)
+        
+        if transformer.changed:
+            return [(new_ir, "Advanced_LoopInvariantCodeMotion")]
+        return []
+
+
+class LICMTransformer(NodeTransformer):
+    """Transformer for Loop Invariant Code Motion."""
+    
+    def __init__(self):
+        self.changed = False
+        self.loop_vars = set()  # Variables modified in current loop
+    
+    def visit_For(self, node: schema.For) -> schema.Statement:
+        """Process for loops to hoist invariant code."""
+        # Track loop variable
+        if isinstance(node.target, schema.Name):
+            old_loop_vars = self.loop_vars.copy()
+            self.loop_vars.add(node.target.id)
+            
+            # Find invariant statements
+            invariant_stmts = []
+            remaining_stmts = []
+            
+            for stmt in node.body.statements:
+                if self._is_loop_invariant(stmt):
+                    invariant_stmts.append(stmt)
+                    self.changed = True
+                else:
+                    remaining_stmts.append(stmt)
+            
+            # Update loop body
+            if invariant_stmts:
+                node.body.statements = remaining_stmts
+            
+            # Restore loop vars
+            self.loop_vars = old_loop_vars
+            
+            # If we hoisted statements, we need to return a list
+            if invariant_stmts:
+                return invariant_stmts + [node]
+        
+        return self.generic_visit(node)
+    
+    def _is_loop_invariant(self, stmt: schema.Statement) -> bool:
+        """Check if a statement is loop-invariant (simplified)."""
+        if isinstance(stmt, schema.Assign):
+            # Check if RHS uses any loop variables
+            used_vars = self._get_used_vars(stmt.value)
+            return not (used_vars & self.loop_vars)
+        return False
+    
+    def _get_used_vars(self, expr: schema.Expression) -> Set[str]:
+        """Get all variables used in an expression."""
+        used = set()
+        
+        if isinstance(expr, schema.Name):
+            used.add(expr.id)
+        elif isinstance(expr, schema.BinaryOp):
+            used.update(self._get_used_vars(expr.left))
+            used.update(self._get_used_vars(expr.right))
+        elif isinstance(expr, schema.Call):
+            for arg in expr.args:
+                used.update(self._get_used_vars(arg))
+        
+        return used

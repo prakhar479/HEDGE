@@ -1,6 +1,6 @@
 # HEDGE - Hierarchical Evolutionary Darwin-Green Engine
 
-A state-of-the-art code optimization system using evolutionary strategies to improve Python code efficiency.
+A state-of-the-art **layered code optimization system** using evolutionary strategies to improve Python code efficiency through hierarchical mutation layers.
 
 ## 🚀 Quick Start
 
@@ -12,25 +12,31 @@ pip install -r requirements.txt
 source .venv/bin/activate  # If you have .venv already
 pip install -r requirements.txt
 
-# Basic optimization
-python3 hedge.py optimize examples/fibonacci.py examples/fibonacci_test.py
+# Micro-optimizations only (constant folding, dead code elimination)
+python3 hedge.py optimize examples/target.py examples/test_target.py --level micro
 
-# With visualizations
-python3 hedge.py optimize examples/fibonacci.py examples/fibonacci_test.py --visualize
+# Standard layered optimization (micro + syntactic + algorithmic)
+python3 hedge.py optimize examples/target.py examples/test_target.py --level standard
 
-# Advanced: LLM-based semantic optimization
+# Advanced with semantic layer (requires LLM API key)
 export GEMINI_API_KEY="your-api-key"
-python3 hedge.py optimize mycode.py mycode_test.py --enable-semantic --visualize
+python3 hedge.py optimize examples/target.py examples/test_target.py --level advanced
+
+# Custom layer selection
+python3 hedge.py optimize examples/target.py examples/test_target.py --layers micro,algorithmic
 ```
 
 ## 📋 Features
 
-- **IR-Only Architecture**: All mutations operate on a strict Intermediate Representation
-- **Multiple Mutation Strategies**: Structural, semantic (LLM-based), and advanced optimizations
-- **Context-Aware Mutations**: Dependency analysis ensures semantics-preserving transformations
-- **Pareto Optimization**: Multi-objective optimization for energy and execution time
+- **Hierarchical Layered Architecture**: 4-layer mutation system (Semantic → Algorithmic → Syntactic → Micro)
+- **IR-Only Mutations**: All transformations operate on a strict Intermediate Representation
+- **34+ Optimization Strategies**: Comprehensive mutation strategies across all abstraction levels
+- **Context-Aware Transformations**: Dependency analysis ensures semantics-preserving mutations
+- **Multi-Objective Optimization**: Pareto front optimization for energy vs execution time
+- **LLM-Enhanced Semantic Layer**: AI-powered algorithm and intent optimization
+- **Granular Control**: Fine-grained control over optimization layers and strategies
 - **Comprehensive Visualizations**: Charts, graphs, and interactive HTML reports
-- **Rich CLI**: Beautiful console output with progress tracking
+- **Rich CLI**: Beautiful console output with progress tracking and layer statistics
 
 ## 🛠️ Installation
 
@@ -58,13 +64,24 @@ pip install rich matplotlib
 ```bash
 python3 hedge.py optimize <target.py> <tests.py> [options]
 
-Options:
-  --generations N          Number of evolutionary generations (default: 5)
-  --enable-semantic        Enable LLM-based semantic mutations
-  --enable-advanced        Enable advanced optimizations (constant folding, DCE)
-  --visualize             Generate visualizations after optimization
-  --save-ir               Save IR snapshots for debugging
-  --verbose               Detailed logging
+Optimization Levels:
+  --level micro           Micro-optimizations only (constant folding, dead code elimination)
+  --level basic           Micro + syntactic optimizations (Python idioms, patterns)
+  --level standard        Basic + algorithmic optimizations (data structures, complexity)
+  --level advanced        Standard + semantic optimizations (algorithm intent, LLM-based)
+  --level aggressive      All layers enabled
+
+Layer Control:
+  --layers LAYERS         Comma-separated list of specific layers: semantic,algorithmic,syntactic,micro
+  --legacy-mode          Use original mutator system instead of layered approach
+
+Other Options:
+  --generations N         Number of evolutionary generations (default: 5)
+  --llm-provider PROVIDER LLM provider for semantic layer (gemini, openai)
+  --exclude-mutators LIST Exclude specific mutator classes
+  --visualize            Generate visualizations after optimization
+  --save-ir              Save IR snapshots for debugging
+  --verbose              Detailed logging
 ```
 
 **Analyze Code**
@@ -80,17 +97,24 @@ python3 hedge.py visualize <results_dir>
 ### Examples
 
 ```bash
-# Simple optimization
-python3 hedge.py optimize fibonacci.py fibonacci_test.py --generations 10
+# Micro-optimizations only (fast, safe)
+python3 hedge.py optimize bubble_sort.py test_sort.py --level micro --generations 5
 
-# Full-featured optimization with LLM
-export GEMINI_API_KEY="..."
-python3 hedge.py optimize mycode.py tests.py \
-  --generations 20 \
-  --enable-semantic \
-  --enable-advanced \
-  --visualize \
-  --verbose
+# Standard layered optimization (recommended)
+python3 hedge.py optimize algorithm.py test_algo.py --level standard --generations 10
+
+# Advanced semantic optimization with LLM
+export GEMINI_API_KEY="your-api-key"
+python3 hedge.py optimize complex_code.py tests.py --level advanced --generations 15 --visualize
+
+# Custom layer selection
+python3 hedge.py optimize code.py tests.py --layers algorithmic,micro --generations 8
+
+# Legacy mode (original system)
+python3 hedge.py optimize code.py tests.py --legacy-mode --level advanced
+
+# List available mutators and layers
+python3 hedge.py list-mutators
 
 # Analyze code complexity
 python3 hedge.py analyze complex_algorithm.py
@@ -105,25 +129,32 @@ Optimization results are saved to `experiments/run_TIMESTAMP/`:
 - `visualizations/` - Charts and HTML report
 - `<target>_optimized.py` - Best solution (lowest energy)
 
-## 🏗️ Architecture
+## 🏗️ Layered Architecture
 
 ```
 HEDGE/
-├── hedge.py                 # Main CLI entry point
+├── hedge.py                 # Main CLI entry point with layered controls
 ├── src/
 │   ├── domain/             # Core business logic
 │   │   ├── ir/            # IR schema, validators, metrics
 │   │   └── interfaces.py  # Abstract base classes
-│   ├── application/        # Use cases
-│   │   ├── mutators/      # Mutation strategies
-│   │   └── engine/        # Evolutionary engine
+│   ├── application/        # Layered mutation system
+│   │   ├── mutators/      # Hierarchical mutation layers
+│   │   │   ├── base.py           # Layered abstraction framework
+│   │   │   ├── semantic_layer.py    # Algorithm intent optimization
+│   │   │   ├── algorithmic_layer.py # Data structure & complexity
+│   │   │   ├── syntactic_layer.py   # Python idioms & patterns
+│   │   │   └── micro_layer.py       # Low-level optimizations
+│   │   └── engine/        # Enhanced evolutionary engine
+│   │       ├── evolution.py        # Layered mutation orchestration
+│   │       └── crossover.py        # Genetic crossover operations
 │   └── infrastructure/     # External integrations
 │       ├── parsing/       # Python → IR
 │       ├── codegen/       # IR → Python
 │       ├── llm/          # LLM clients
-│       └── execution/    # Code runner
-├── tests/                  # Test suite
-└── examples/              # Example code
+│       └── execution/    # Code runner with energy monitoring
+├── tests/                  # Comprehensive test suite
+└── examples/              # Example code and benchmarks
 ```
 
 ## 🧪 Testing
@@ -148,6 +179,30 @@ python3 -m pytest tests/test_parser.py -v
 - **[Mutators](docs/MUTATORS.md)** - Mutation strategies explained
 
 ## 🔬 Key Concepts
+
+### Hierarchical Mutation Layers
+
+HEDGE implements a **4-layer hierarchical mutation system** that operates from high-level algorithmic optimizations down to low-level micro-optimizations:
+
+#### 🧠 **Semantic Layer** (Highest Level)
+- **AlgorithmicIntentMutator**: Algorithm selection and Big-O complexity optimization
+- **ProgramIntentMutator**: Logic simplification and control flow optimization
+- *Requires LLM API key for advanced semantic analysis*
+
+#### 📊 **Algorithmic Layer**
+- **DataStructureOptimizer**: List→Set conversion, access pattern optimization
+- **ComplexityReducer**: Nested loop reduction, mathematical optimizations
+
+#### 🐍 **Syntactic Layer**
+- **PythonicIdiomOptimizer**: Comprehensions, built-ins, iterator optimization
+- **CodePatternOptimizer**: LLM-based pattern improvements and idiom suggestions
+
+#### ⚡ **Micro Layer** (Lowest Level)
+- **ConstantOptimizer**: Constant folding, propagation, arithmetic simplification
+- **DeadCodeEliminator**: Unreachable code removal, unused variable elimination
+- **LoopMicroOptimizer**: Small loop unrolling, strength reduction, invariant motion
+
+**Total**: 9 mutators with 34+ optimization strategies across 4 abstraction layers
 
 ### IR-Only Mutations
 All code transformations operate on a strict Intermediate Representation (IR), ensuring type safety and preventing string-based code manipulation errors.

@@ -1,13 +1,15 @@
-# HEDGE CLI Interface
+# HEDGE CLI Reference
 
-## Overview
-HEDGE now has a single, unified CLI interface with comprehensive features and beautiful output.
+Complete reference for the HEDGE command-line interface with layered mutation system.
 
 ## Installation
 
 ### Install Dependencies
 ```bash
-pip install matplotlib rich pydantic
+pip install -r requirements.txt
+
+# Optional: Enhanced UI and visualizations
+pip install rich matplotlib
 ```
 
 ### Make Executable (Unix/Linux/Mac)
@@ -15,22 +17,35 @@ pip install matplotlib rich pydantic
 chmod +x hedge.py
 ```
 
-## Usage
+## Quick Start
 
-### 1. Optimize Code
+### Basic Usage
 ```bash
-# Basic optimization (Fast, no LLM)
-python3 hedge.py optimize fibonacci.py fibonacci_test.py --level basic
+# Micro-optimizations only (constant folding, dead code elimination)
+python3 hedge.py optimize examples/target.py examples/test_target.py --level micro
 
-# Standard optimization (Balanced, uses LLM)
-python3 hedge.py optimize fibonacci.py fibonacci_test.py --level standard
+# Standard layered optimization (recommended)
+python3 hedge.py optimize examples/target.py examples/test_target.py --level standard
 
+# Advanced with semantic layer (requires LLM API key)
+export GEMINI_API_KEY="your-api-key"
+python3 hedge.py optimize examples/target.py examples/test_target.py --level advanced
+
+# Custom layer selection
+python3 hedge.py optimize examples/target.py examples/test_target.py --layers micro,algorithmic
+```
+
+### Advanced Usage
+```bash
 # Deep optimization with visualization
 python3 hedge.py optimize fibonacci.py fibonacci_test.py \
   --level advanced \
-  --generations 10 \
+  --generations 15 \
   --visualize \
   --verbose
+
+# Legacy mode (original mutator system)
+python3 hedge.py optimize code.py tests.py --legacy-mode --level advanced
 
 # Custom experiment directory
 python3 hedge.py optimize fibonacci.py fibonacci_test.py \
@@ -38,41 +53,53 @@ python3 hedge.py optimize fibonacci.py fibonacci_test.py \
   --save-ir
 ```
 
-### 2. Analyze Code Complexity
+### Other Commands
 ```bash
+# Analyze code complexity
 python3 hedge.py analyze mycode.py
-```
 
-### 3. Generate Visualizations
-```bash
+# Generate visualizations from existing results
 python3 hedge.py visualize experiments/run_20231204_123456
+
+# List available mutators and layers
+python3 hedge.py list-mutators
 ```
 
 ## Commands
 
 ### `optimize`
-Optimize Python code using evolutionary strategies.
+Optimize Python code using hierarchical evolutionary strategies.
 
 **Arguments:**
 - `target` - Python file to optimize (required)
 - `tests` - Test file for validation (required)
 
-**Options:**
-- `--level {basic,standard,advanced,aggressive}` - Optimization level (default: standard)
-  - `basic`: Structural only (Fast, No LLM)
-  - `standard`: Structural + Syntactic (Balanced, LLM)
-  - `advanced`: Standard + Semantic (Deep, LLM StdLib)
-  - `aggressive`: All + External Libraries (Unsafe)
-- `--generations N` - Number of generations (default: 5)
-- `--population-size N` - Population size (default: 5)
-- `--timeout N` - Execution timeout in seconds (default: 20)
-- `--llm-provider {openai,gemini}` - LLM provider (default: gemini)
-- `--llm-model MODEL` - Custom LLM model
-- `--no-context` - Disable context-aware mutations
-- `--save-ir` - Save IR snapshots
+**Optimization Levels:**
+- `--level micro` - Micro-optimizations only (constant folding, dead code elimination)
+- `--level basic` - Micro + syntactic optimizations (Python idioms, patterns)
+- `--level standard` - Basic + algorithmic optimizations (data structures, complexity)
+- `--level advanced` - Standard + semantic optimizations (algorithm intent, requires LLM)
+- `--level aggressive` - All layers enabled with maximum optimization
+
+**Layer Control:**
+- `--layers LAYERS` - Comma-separated list of specific layers: semantic,algorithmic,syntactic,micro
+- `--legacy-mode` - Use original mutator system instead of layered approach
+- `--exclude-mutators LIST` - Exclude specific mutator classes (e.g., "ConstantOptimizer,DeadCodeEliminator")
+
+**Evolution Options:**
+- `--generations N` - Number of evolutionary generations (default: 5)
+- `--population-size N` - Population size (default: 10)
+- `--timeout N` - Execution timeout in seconds (default: 30)
+
+**LLM Configuration:**
+- `--llm-provider {openai,gemini}` - LLM provider for semantic layer (default: gemini)
+- `--llm-model MODEL` - Custom LLM model name
+
+**Output Options:**
+- `--save-ir` - Save IR snapshots for debugging
 - `--experiment-dir DIR` - Custom experiment directory
 - `--visualize` - Generate visualizations after optimization
-- `--verbose` - Verbose logging
+- `--verbose` - Detailed logging with layer statistics
 
 **Output:**
 - Pareto-optimal solutions
@@ -81,7 +108,7 @@ Optimize Python code using evolutionary strategies.
 - Visualizations (if `--visualize` is used)
 
 ### `analyze`
-Analyze code complexity and structure.
+Analyze code complexity and structure with layer-aware metrics.
 
 **Arguments:**
 - `code` - Python file to analyze (required)
@@ -89,6 +116,8 @@ Analyze code complexity and structure.
 **Output:**
 - IR metrics (nodes, complexity, depth)
 - Code structure statistics
+- Layer-specific optimization opportunities
+- Complexity analysis per abstraction level
 
 ### `visualize`
 Generate comprehensive visualizations from optimization results.
@@ -97,11 +126,20 @@ Generate comprehensive visualizations from optimization results.
 - `results_dir` - Directory containing experiment results (required)
 
 **Output:**
-- Pareto front plot
-- Evolution progress charts
-- Mutation effectiveness graphs
+- Pareto front plot (energy vs execution time)
+- Evolution progress charts with layer statistics
+- Mutation effectiveness by layer and strategy
+- Layer contribution analysis
 - Metrics comparison charts
-- Interactive HTML report
+- Interactive HTML report with layer breakdown
+
+### `list-mutators`
+List all available mutators organized by layer.
+
+**Output:**
+- Mutators grouped by layer (Semantic, Algorithmic, Syntactic, Micro)
+- Available strategies for each mutator
+- Layer dependencies and requirements
 
 ## Features
 

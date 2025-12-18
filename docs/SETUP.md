@@ -1,6 +1,6 @@
 # HEDGE Setup Guide
 
-This guide will help you get HEDGE up and running with real LLM integration.
+This guide will help you get HEDGE up and running with the layered mutation system and LLM integration.
 
 ## Quick Start
 
@@ -12,11 +12,14 @@ git clone https://github.com/prakhar479/HEDGE.git
 cd HEDGE
 
 # Create and activate virtual environment
-python3 -m venv .env
-source .env/bin/activate  # On Windows: .env\Scripts\activate
+python3 -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 
 # Install dependencies
 pip install -r requirements.txt
+
+# Optional: Enhanced UI and visualizations
+pip install rich matplotlib
 ```
 
 ### 2. API Key Configuration
@@ -49,46 +52,75 @@ If you don't provide any API key, HEDGE will use `MockLLMClient` which demonstra
 
 ### 3. Running Examples
 
-#### Example 1: Bubble Sort Optimization
+#### Example 1: Micro-Level Optimizations (No LLM Required)
 ```bash
-python hedge.py optimize examples/target.py examples/test_target.py --generations 5
+python hedge.py optimize examples/target.py examples/test_target.py --level micro --generations 5
 ```
 
-Expected outcome: HEDGE will optimize the O(n²) bubble sort to use Python's built-in `sorted()` (Timsort, O(n log n)).
+Expected outcome: Constant folding, dead code elimination, and basic micro-optimizations.
 
-#### Example 2: Fibonacci Optimization
+#### Example 2: Standard Layered Optimization
 ```bash
-python hedge.py optimize examples/target_fib.py examples/test_target_fib.py --generations 5
+python hedge.py optimize examples/target.py examples/test_target.py --level standard --generations 5
 ```
 
-Expected outcome: HEDGE will optimize the O(2ⁿ) recursive Fibonacci to an O(n) iterative or memoized version.
+Expected outcome: HEDGE will apply micro + syntactic + algorithmic optimizations, including O(n²) bubble sort → O(n log n) Timsort.
 
-#### Example 3: Search Optimization
+#### Example 3: Advanced Semantic Optimization (Requires LLM)
 ```bash
-python hedge.py optimize examples/target_search.py examples/test_target_search.py --generations 5
+export GEMINI_API_KEY="your-api-key"
+python hedge.py optimize examples/target_fib.py examples/test_target_fib.py --level advanced --generations 5
 ```
 
-Expected outcome: HEDGE may suggest optimizations like using `enumerate()` or Python's built-in `list.index()`.
+Expected outcome: HEDGE will optimize O(2ⁿ) recursive Fibonacci to O(n) iterative through semantic understanding.
+
+#### Example 4: Custom Layer Selection
+```bash
+python hedge.py optimize examples/target_search.py examples/test_target_search.py --layers algorithmic,micro --generations 5
+```
+
+Expected outcome: Only algorithmic and micro-level optimizations applied.
+
+#### Example 5: Legacy Mode
+```bash
+python hedge.py optimize examples/target.py examples/test_target.py --legacy-mode --level advanced --generations 5
+```
+
+Expected outcome: Uses the original mutator system for comparison.
 
 ## Understanding the Output
 
 HEDGE will show you:
 
 1. **Baseline Metrics**: Energy and time for original code
-2. **Generation Progress**: Each mutation attempt with its type (L1/L2)
-3. **Improvements Found**: When a better variant is discovered
-4. **Final Results**: Best code and comparative metrics
+2. **Layer Statistics**: Mutations applied per layer (Semantic, Algorithmic, Syntactic, Micro)
+3. **Generation Progress**: Evolution progress with layer-specific improvements
+4. **Pareto Front**: Trade-offs between energy consumption and execution time
+5. **Final Results**: Best solutions with layer contribution analysis
 
 ### Output Directories
 
-- `experiments/<timestamp>/`: Contains detailed logs in JSONL format
-- `examples/target_optimized.py`: Optimized version of your target code
+```
+experiments/run_TIMESTAMP/
+├── config.json                    # Experiment configuration
+├── pareto_results.json           # All Pareto-optimal solutions
+├── statistics.json               # Layer and mutation statistics
+├── visualizations/               # Charts and HTML report (if --visualize)
+└── <target>_optimized.py        # Best solution (lowest energy)
+```
 
 ## Advanced Usage
 
-### Customizing Generations
+### Layer-Specific Optimization
 ```bash
-python hedge.py optimize your_code.py your_tests.py --generations 10
+# Only semantic and algorithmic layers
+python hedge.py optimize your_code.py your_tests.py --layers semantic,algorithmic --generations 10
+
+# Exclude specific mutators
+python hedge.py optimize your_code.py your_tests.py --exclude-mutators "ConstantOptimizer,DeadCodeEliminator"
+
+# Aggressive optimization with all layers
+python hedge.py optimize your_code.py your_tests.py --level aggressive --generations 15 --visualize
 ```
 
 ### Monitoring Energy Consumption
@@ -97,6 +129,15 @@ HEDGE uses `codecarbon` to measure energy. For best results:
 - Run on Linux or WSL
 - Ensure you have hardware energy monitoring (Intel RAPL or similar)
 - If energy monitoring isn't available, HEDGE will fall back to execution time
+
+### Layer Performance Analysis
+```bash
+# Generate detailed visualizations
+python hedge.py optimize your_code.py your_tests.py --level standard --visualize --verbose
+
+# View layer contribution in HTML report
+open experiments/run_TIMESTAMP/visualizations/report.html
+```
 
 ## Troubleshooting
 

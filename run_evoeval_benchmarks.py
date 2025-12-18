@@ -1,7 +1,14 @@
 #!/usr/bin/env python3
 """
 Run HEDGE optimization on all EvoEval benchmark problems.
-Compatible with HEDGE v2.0 component interface.
+
+NOTE: This script uses the legacy mutator system and needs to be updated
+to work with the new layered mutation system. Use --legacy-mode with the
+main hedge.py CLI for now, or update this script to use the new layered
+mutators from src/application/mutators/base.py
+
+For current benchmarking, use:
+    python hedge.py optimize <target> <tests> --legacy-mode --level advanced
 """
 
 import os

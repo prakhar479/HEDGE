@@ -17,7 +17,7 @@ import argparse
 import logging
 from pathlib import Path
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Set
 import json
 
 # Add project root to path
@@ -47,10 +47,17 @@ from src.application.mutators.structural import StructuralMutator
 from src.application.mutators.semantic import SemanticMutator
 from src.application.mutators.syntactic import SyntacticReasoningMutator
 from src.application.mutators.external import ExternalLibraryMutator
-from src.application.mutators.advanced import (
-    ConstantFoldingMutator,
-    DeadCodeEliminationMutator
-)
+from src.application.mutators.base import MutationLayer
+from src.application.mutators.semantic_layer import AlgorithmicIntentMutator, ProgramIntentMutator
+from src.application.mutators.algorithmic_layer import DataStructureOptimizer, ComplexityReducer
+from src.application.mutators.syntactic_layer import PythonicIdiomOptimizer, CodePatternOptimizer
+from src.application.mutators.micro_layer import ConstantOptimizer, DeadCodeEliminator, LoopMicroOptimizer
+
+# Legacy imports for backward compatibility
+from src.application.mutators.structural import StructuralMutator
+from src.application.mutators.semantic import SemanticMutator
+from src.application.mutators.syntactic import SyntacticReasoningMutator
+from src.application.mutators.external import ExternalLibraryMutator
 
 
 
@@ -154,7 +161,7 @@ def cmd_optimize(args):
             runner = GreenGymRunner(timeout_seconds=args.timeout)
             progress.update(task, description="Green Gym runner initialized")
             
-            mutators = _setup_mutators(args, progress, task)
+            mutators, enabled_layers = _setup_mutators(args, progress, task)
             progress.update(task, description="[green]✓[/green] All mutators initialized")
             
             # Create engine
@@ -203,7 +210,7 @@ def cmd_optimize(args):
         print("Initializing components...")
         runner = GreenGymRunner(timeout_seconds=args.timeout)
         print("✓ Green Gym runner initialized")
-        mutators = _setup_mutators(args)
+        mutators, enabled_layers = _setup_mutators(args)
         print("✓ All mutators initialized")
         
         engine = EvolutionaryEngine(
@@ -214,6 +221,14 @@ def cmd_optimize(args):
             experiment_dir=experiment_dir,
             save_ir_snapshots=args.save_ir
         )
+        
+        # Register layered mutators with the engine
+        for mutator in mutators:
+            if hasattr(mutator, 'layer'):  # It's a layered mutator
+                engine.mutation_orchestrator.register_mutator(mutator)
+        
+        # Set enabled layers
+        engine.set_enabled_layers(enabled_layers)
         
         logger.info(f"\nStarting optimization with {args.generations} generations")
         logger.info(f"Mutators: {[m.__class__.__name__ for m in mutators]}\n")
@@ -240,65 +255,127 @@ def cmd_optimize(args):
     return 0
 
 def _setup_mutators(args, progress=None, task=None):
-    """Set up mutators based on optimization level."""
-    mutators = []
+    """Set up layered mutators based on optimization level and enabled layers."""
     
-    # Level definitions
-    # basic: Structural + Advanced (No LLM)
-    # standard: Structural + Advanced + Syntactic (LLM)
-    # advanced: Structural + Advanced + Syntactic + Semantic (All StdLib)
-    # aggressive: All above + External (Unsafe/External Libs)
+    # Determine enabled layers based on optimization level
+    enabled_layers = _get_enabled_layers(args.level, args)
     
-    use_llm = args.level in ['standard', 'advanced', 'aggressive']
-    
-    # 1. Structural (Always enabled)
-    mutators.append(StructuralMutator(use_context=not args.no_context))
-    if progress:
-        progress.update(task, description="[green]✓[/green] Structural mutator enabled")
-        
-    # 2. Advanced (Always enabled in our simplified model for performance)
-    mutators.extend([
-        ConstantFoldingMutator(),
-        DeadCodeEliminationMutator()
-    ])
-    if progress:
-        progress.update(task, description="[green]✓[/green] Advanced mutators enabled")
-
-    # Initialize LLM if needed
+    # Initialize LLM if needed for semantic layers
     llm = None
+    use_llm = any(layer in enabled_layers for layer in [MutationLayer.SEMANTIC])
+    
     if use_llm:
         api_key = os.getenv(f"{args.llm_provider.upper()}_API_KEY")
         if api_key:
             llm = create_llm_client(args.llm_provider, api_key, args.llm_model)
         else:
-            logging.warning(f"API key not found for {args.llm_provider}. Reverting to basic level.")
-            use_llm = False
-
-    if use_llm:
-        # Standard: Syntactic
-        if args.level in ['standard', 'advanced', 'aggressive']:
-            mutators.append(SyntacticReasoningMutator(llm))
-            if progress:
-                progress.update(task, description="[green]✓[/green] Syntactic mutator enabled")
-        
-        # Advanced: Semantic
-        if args.level in ['advanced', 'aggressive']:
-            mutators.append(SemanticMutator(llm))
-            if progress:
-                progress.update(task, description="[green]✓[/green] Semantic mutator enabled (StdLib)")
-                
-        # Aggressive: External
-        if args.level == 'aggressive':
-            mutators.append(ExternalLibraryMutator(llm))
-            if progress:
-                progress.update(task, description="[green]✓[/green] External mutator enabled")
+            logging.warning(f"API key not found for {args.llm_provider}. Disabling semantic layer.")
+            enabled_layers.discard(MutationLayer.SEMANTIC)
     
+    # Create layered mutators
+    mutators = []
+    
+    # Semantic Layer Mutators
+    if MutationLayer.SEMANTIC in enabled_layers and llm:
+        mutators.extend([
+            AlgorithmicIntentMutator(llm),
+            ProgramIntentMutator(llm)
+        ])
+        if progress:
+            progress.update(task, description="[green]✓[/green] Semantic layer mutators enabled")
+    
+    # Algorithmic Layer Mutators  
+    if MutationLayer.ALGORITHMIC in enabled_layers:
+        mutators.extend([
+            DataStructureOptimizer(),
+            ComplexityReducer()
+        ])
+        if progress:
+            progress.update(task, description="[green]✓[/green] Algorithmic layer mutators enabled")
+    
+    # Syntactic Layer Mutators
+    if MutationLayer.SYNTACTIC in enabled_layers:
+        syntactic_mutators = [PythonicIdiomOptimizer()]
+        if llm:  # LLM-based syntactic mutators
+            syntactic_mutators.append(CodePatternOptimizer(llm))
+        mutators.extend(syntactic_mutators)
+        if progress:
+            progress.update(task, description="[green]✓[/green] Syntactic layer mutators enabled")
+    
+    # Micro Layer Mutators
+    if MutationLayer.MICRO in enabled_layers:
+        mutators.extend([
+            ConstantOptimizer(),
+            DeadCodeEliminator(), 
+            LoopMicroOptimizer()
+        ])
+        if progress:
+            progress.update(task, description="[green]✓[/green] Micro layer mutators enabled")
+    
+    # Legacy compatibility: Add old-style mutators if using legacy mode
+    if getattr(args, 'legacy_mode', False):
+        mutators.extend(_setup_legacy_mutators(args, llm))
+        if progress:
+            progress.update(task, description="[green]✓[/green] Legacy mutators enabled")
+    
+    # Filter excluded mutators
     if args.exclude_mutators:
         excluded = [m.strip() for m in args.exclude_mutators.split(',')]
         mutators = [m for m in mutators if m.__class__.__name__ not in excluded]
         if progress:
             progress.update(task, description=f"[green]✓[/green] Mutators filtered: {len(mutators)} active")
-            
+    
+    return mutators, enabled_layers
+
+
+def _get_enabled_layers(level: str, args) -> Set[MutationLayer]:
+    """Determine which mutation layers are enabled based on optimization level."""
+    
+    # Parse custom layer specification if provided
+    if hasattr(args, 'layers') and args.layers:
+        layer_names = [name.strip().lower() for name in args.layers.split(',')]
+        enabled_layers = set()
+        for name in layer_names:
+            try:
+                enabled_layers.add(MutationLayer(name))
+            except ValueError:
+                logging.warning(f"Unknown layer: {name}")
+        return enabled_layers
+    
+    # Default layer sets based on optimization level
+    if level == 'micro':
+        return {MutationLayer.MICRO}
+    elif level == 'basic':
+        return {MutationLayer.MICRO, MutationLayer.SYNTACTIC}
+    elif level == 'standard':
+        return {MutationLayer.MICRO, MutationLayer.SYNTACTIC, MutationLayer.ALGORITHMIC}
+    elif level == 'advanced':
+        return {MutationLayer.MICRO, MutationLayer.SYNTACTIC, MutationLayer.ALGORITHMIC, MutationLayer.SEMANTIC}
+    elif level == 'aggressive':
+        return set(MutationLayer)  # All layers
+    else:
+        # Default to standard
+        return {MutationLayer.MICRO, MutationLayer.SYNTACTIC, MutationLayer.ALGORITHMIC}
+
+
+def _setup_legacy_mutators(args, llm):
+    """Set up legacy mutators for backward compatibility."""
+    mutators = []
+    
+    # Legacy structural mutator
+    mutators.append(StructuralMutator(use_context=not args.no_context))
+    
+    # Legacy LLM-based mutators
+    if llm:
+        if args.level in ['standard', 'advanced', 'aggressive']:
+            mutators.append(SyntacticReasoningMutator(llm))
+        
+        if args.level in ['advanced', 'aggressive']:
+            mutators.append(SemanticMutator(llm))
+        
+        if args.level == 'aggressive':
+            mutators.append(ExternalLibraryMutator(llm))
+    
     return mutators
 
 def _display_results(solutions, engine, duration, experiment_dir, args):
@@ -481,29 +558,57 @@ def cmd_list_mutators(args):
         table.add_column("Description", style="dim")
         
         # Structural
-        table.add_row("Structural", "StructuralMutator", "All", "AST-based transformations (Reordering, Strength Reduction)")
-        table.add_row("Advanced", "ConstantFoldingMutator", "All", "Evaluates constant expressions")
-        table.add_row("Advanced", "DeadCodeEliminationMutator", "All", "Removes unreachable code")
+        # Semantic Layer
+        table.add_row("Semantic", "AlgorithmicIntentMutator", "advanced+", "Algorithm selection and complexity optimization")
+        table.add_row("Semantic", "ProgramIntentMutator", "advanced+", "Program logic and intent optimization")
         
-        # Syntactic
-        table.add_row("Syntactic", "SyntacticReasoningMutator", "standard+", "LLM-based idiom replacement (e.g. loops to comprehensions)")
+        # Algorithmic Layer
+        table.add_row("Algorithmic", "DataStructureOptimizer", "standard+", "Data structure selection optimization")
+        table.add_row("Algorithmic", "ComplexityReducer", "standard+", "Algorithmic complexity reduction")
         
-        # Semantic
-        table.add_row("Semantic", "SemanticMutator", "advanced+", "LLM-based StdLib optimization")
+        # Syntactic Layer
+        table.add_row("Syntactic", "PythonicIdiomOptimizer", "basic+", "Python idiom and pattern optimization")
+        table.add_row("Syntactic", "CodePatternOptimizer", "basic+", "LLM-based code pattern improvements")
         
-        # External
-        table.add_row("External", "ExternalLibraryMutator", "aggressive", "LLM-based External Library optimization (pandas, numpy)")
+        # Micro Layer
+        table.add_row("Micro", "ConstantOptimizer", "micro+", "Constant folding and propagation")
+        table.add_row("Micro", "DeadCodeEliminator", "micro+", "Dead code and unreachable code elimination")
+        table.add_row("Micro", "LoopMicroOptimizer", "micro+", "Loop unrolling and micro-optimizations")
+        
+        # Legacy (when using --legacy-mode)
+        table.add_row("Legacy", "StructuralMutator", "legacy", "Original structural transformations")
+        table.add_row("Legacy", "SemanticMutator", "legacy", "Original LLM-based semantic optimization")
+        table.add_row("Legacy", "ExternalLibraryMutator", "legacy", "External library optimization (pandas, numpy)")
         
         console.print(table)
-        console.print("\n[bold]Usage:[/bold] Use [cyan]--level[/cyan] to enable groups, or [cyan]--exclude-mutators[/cyan] to fine-tune.")
+        console.print("\n[bold]Layered System:[/bold]")
+        console.print("• [cyan]--level micro[/cyan]: Only micro-optimizations (constant folding, dead code elimination)")
+        console.print("• [cyan]--level basic[/cyan]: Micro + syntactic optimizations (Python idioms, patterns)")  
+        console.print("• [cyan]--level standard[/cyan]: Basic + algorithmic optimizations (data structures, complexity)")
+        console.print("• [cyan]--level advanced[/cyan]: Standard + semantic optimizations (algorithm intent, LLM-based)")
+        console.print("• [cyan]--level aggressive[/cyan]: All layers enabled")
+        console.print("\n[bold]Custom Control:[/bold]")
+        console.print("• [cyan]--layers semantic,micro[/cyan]: Enable only specific layers")
+        console.print("• [cyan]--legacy-mode[/cyan]: Use original mutator system")
+        console.print("• [cyan]--exclude-mutators[/cyan]: Exclude specific mutator classes")
     else:
         print("\nAvailable Mutators:")
-        print("  - StructuralMutator (All): AST-based transformations")
-        print("  - ConstantFoldingMutator (All): Basic optimization")
-        print("  - DeadCodeEliminationMutator (All): Basic optimization")
-        print("  - SyntacticReasoningMutator (standard+): LLM-based idioms")
-        print("  - SemanticMutator (advanced+): LLM-based StdLib")
-        print("  - ExternalLibraryMutator (aggressive): External libraries")
+        print("\nLayered Mutator System:")
+        print("  Semantic Layer (advanced+):")
+        print("    - AlgorithmicIntentMutator: Algorithm selection optimization")
+        print("    - ProgramIntentMutator: Program logic optimization")
+        print("  Algorithmic Layer (standard+):")
+        print("    - DataStructureOptimizer: Data structure selection")
+        print("    - ComplexityReducer: Complexity reduction")
+        print("  Syntactic Layer (basic+):")
+        print("    - PythonicIdiomOptimizer: Python idioms")
+        print("    - CodePatternOptimizer: Code patterns (LLM)")
+        print("  Micro Layer (micro+):")
+        print("    - ConstantOptimizer: Constant folding")
+        print("    - DeadCodeEliminator: Dead code elimination")
+        print("    - LoopMicroOptimizer: Loop optimizations")
+        print("\nUse --layers to specify custom layer combinations")
+        print("Use --legacy-mode for original mutator system")
 
     return 0
 
@@ -514,10 +619,22 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Basic optimization
-  hedge optimize fibonacci.py fibonacci_test.py --level basic
+  # Micro-optimizations only (constant folding, dead code elimination)
+  hedge optimize fibonacci.py fibonacci_test.py --level micro
   
-  # List strategies
+  # Standard layered optimization (micro + syntactic + algorithmic)
+  hedge optimize fibonacci.py fibonacci_test.py --level standard
+  
+  # Advanced with semantic layer (includes LLM-based optimizations)
+  hedge optimize fibonacci.py fibonacci_test.py --level advanced --llm-provider gemini
+  
+  # Custom layer selection
+  hedge optimize fibonacci.py fibonacci_test.py --layers micro,algorithmic
+  
+  # Legacy mode (original mutator system)
+  hedge optimize fibonacci.py fibonacci_test.py --legacy-mode --level advanced
+  
+  # List available mutators and layers
   hedge list-mutators
   
   # Analyze code complexity
@@ -534,7 +651,13 @@ Examples:
     optimize_parser = subparsers.add_parser('optimize', help='Optimize Python code')
     optimize_parser.add_argument('target', type=str, help='Target Python file to optimize')
     optimize_parser.add_argument('tests', type=str, help='Test file')
-    optimize_parser.add_argument('--level', type=str, default='standard', choices=['basic', 'standard', 'advanced', 'aggressive'], help='Optimization level')
+    optimize_parser.add_argument('--level', type=str, default='standard', 
+                                choices=['micro', 'basic', 'standard', 'advanced', 'aggressive'], 
+                                help='Optimization level (micro=micro-opts only, basic=micro+syntactic, standard=+algorithmic, advanced=+semantic, aggressive=all)')
+    optimize_parser.add_argument('--layers', type=str, default=None,
+                                help='Comma-separated list of specific layers to enable: semantic,algorithmic,syntactic,micro')
+    optimize_parser.add_argument('--legacy-mode', action='store_true', 
+                                help='Use legacy mutator system instead of layered approach')
     optimize_parser.add_argument('--generations', type=int, default=5, help='Number of generations (default: 5)')
     optimize_parser.add_argument('--population-size', type=int, default=5, help='Population size (default: 5)')
     optimize_parser.add_argument('--timeout', type=int, default=20, help='Timeout for code execution (default: 20s)')
